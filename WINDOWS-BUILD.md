@@ -36,3 +36,14 @@ Darstellungsreihenfolge. Alle anderen Sprachen unberuehrt.
 - Release-Builds definieren `NOLOG=1` + `NORAWSTREAM=1`; Debug-Builds loggen (`SCANLOG`)
   und schreiben den rohen BLE-Stream in die Sensor-Verzeichnisse (`rawstream`-Datei).
 - Flavor-Kombinationen sind gefiltert: libre3 existiert nur zusammen mit si+dex.
+
+## Wechseltag-Checkliste (offiziell -> DIAG, am Sensorwechsel)
+1. Neuen Sensor in **Juggluco DIAG** aktivieren (App-ID tk.glucodata.debug, laeuft parallel).
+2. In DIAG konfigurieren (startet mit frischen Einstellungen!): xDrip-Broadcast an AAPS AN,
+   Webserver AN (Port 17580), ggf. Mirror zum Testhandy, Einheiten/Alarme.
+3. In der OFFIZIELLEN App: xDrip-Broadcast AUS und Webserver AUS — oder die App komplett
+   deaktivieren (narrensicher, umkehrbar). Es darf nur EINE App an AAPS senden und nur
+   EINE den Port 17580 halten, sonst liest der Viewer die falsche (tote) Quelle.
+4. Gegenprobe: AAPS zeigt frische Werte; Viewer-JG == Loop-BG.
+5. Diagnose-Datei bei Bedarf: adb exec-out run-as tk.glucodata.debug sh -c
+   'cat files/<sensordir>/l3diag.csv'
