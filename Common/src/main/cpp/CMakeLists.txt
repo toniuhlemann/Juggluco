@@ -90,7 +90,14 @@ include(ExternalProject)
 
 set(RTLPP_DEPENDS "${ARJUGGLUCO_INPUT}")
 
-if(CMAKE_CROSSCOMPILING)
+if(CMAKE_CROSSCOMPILING AND CMAKE_HOST_WIN32)
+    # Windows-Build-Host (toni): das rtlpp-Hostwerkzeug braucht Ninja + Host-Compiler + ICU,
+    # die hier nicht existieren. rtlpp formt NUR die arabischen UI-Texte fuer die
+    # RTL-Darstellung um — fuer unsere Diagnose-Builds irrelevant. Die Eingabedatei ist
+    # gueltiges C++ und wird unveraendert durchgereicht; einzige Folge: arabische Labels
+    # wuerden in Lesereihenfolge statt in Darstellungsreihenfolge gerendert.
+    set(JUGGLUCO_SKIP_RTLPP TRUE)
+elseif(CMAKE_CROSSCOMPILING)
     if(CMAKE_HOST_WIN32)
         set(RTLPP_HOST_EXE_SUFFIX ".exe")
     else()
@@ -144,6 +151,18 @@ else()
     )
 endif()
 
+if(JUGGLUCO_SKIP_RTLPP)
+    add_custom_command(
+        OUTPUT "${ARJUGGLUCO_OUTPUT}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DRTLPP_IN=${ARJUGGLUCO_INPUT}"
+            "-DRTLPP_OUT=${ARJUGGLUCO_OUTPUT}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/skip_rtlpp.cmake"
+        DEPENDS "${ARJUGGLUCO_INPUT}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/skip_rtlpp.cmake"
+        COMMENT "rtlpp uebersprungen (Windows-Host): RTL-Marker als Identitaet"
+        VERBATIM
+    )
+else()
 add_custom_command(
     OUTPUT "${ARJUGGLUCO_OUTPUT}"
     COMMAND "${RTLPP_COMMAND}" "${ARJUGGLUCO_INPUT}" "${ARJUGGLUCO_OUTPUT}"
@@ -151,6 +170,7 @@ add_custom_command(
     COMMENT "Generating ${ARJUGGLUCO_OUTPUT} from ${ARJUGGLUCO_INPUT}"
     VERBATIM
 )
+endif()
 
 
 
