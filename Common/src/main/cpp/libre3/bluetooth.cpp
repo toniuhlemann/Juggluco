@@ -180,6 +180,50 @@ static void save3history(SensorGlucoseData *sens, const oneminute *minptr) {
 
 
 extern jlong glucoseback(uint32_t nu,uint32_t glval,float drate,SensorGlucoseData *hist) ;
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+/* L3-DIAGNOSE (l3-diagnostics-toni): Der Libre 3 liefert pro Minute deutlich mehr als
+ * Juggluco speichert — insbesondere esaDuration (Abbotts eigenes "Early Signal
+ * Attenuation"-Flag), die Thermistor-Temperatur, die UNgekappten Werte und Abbotts
+ * lag-kompensierte Projektion. Diese Felder entscheiden, ob ein auffaelliger Sensor
+ * wirklich defekt ist (Reklamationsbeleg aus dem Sensorprotokoll selbst) und ob
+ * Wert-Einbrueche vom Sensor selbst als Daempfung markiert werden (Kompressions-Filter).
+ *
+ * Rein additiv: eigener Anhang an l3diag.csv im Sensorverzeichnis, ein Fehlschlag hier
+ * beruehrt den Speicher-/Sendepfad nicht. ~80 Byte/min ≈ 1,7 MB je 14-Tage-Sensor.
+ * Spalten siehe Kopfzeile, fastdata als Hex. */
+inline constexpr const char l3diagname[]="l3diag.csv";
+static void l3diagAppend(SensorGlucoseData *sens, const oneminute *m, uint32_t now) {
+    pathconcat file(sens->getsensordir(), l3diagname);
+    const int fd=open(file.data(), O_APPEND|O_CREAT|O_WRONLY, S_IRUSR|S_IWUSR);
+    if(fd<0)
+        return;
+    struct stat st;
+    if(!fstat(fd, &st)&&st.st_size==0) {
+        static constexpr const char header[]=
+            "unixtime,lifeCount,readingMgDl,rateOfChange,esaDuration,projectedGlucose,"
+            "historicalLifeCount,historicalReading,trend,uncappedCurrentMgDl,"
+            "uncappedHistoricMgDl,temperature,fastdata\n";
+        write(fd, header, sizeof(header)-1);
+        }
+    char line[224];
+    char fast[17];
+    for(int i=0;i<8;i++)
+        snprintf(fast+2*i, 3, "%02x", m->fastdata[i]);
+    const int n=snprintf(line, sizeof(line),
+        "%u,%u,%u,%d,%u,%u,%u,%u,%u,%u,%u,%u,%s\n",
+        now, (unsigned)m->lifeCount, (unsigned)m->readingMgDl, (int)m->rateOfChange,
+        (unsigned)m->esaDuration, (unsigned)m->projectedGlucose,
+        (unsigned)m->historicalLifeCount, (unsigned)m->historicalReading,
+        (unsigned)m->trend, (unsigned)m->uncappedCurrentMgDl,
+        (unsigned)m->uncappedHistoricMgDl, (unsigned)m->temperature, fast);
+    if(n>0)
+        write(fd, line, n);
+    close(fd);
+    }
+
 static jlong save3current(SensorGlucoseData *sens, const oneminute *minptr,uint32_t now) {
 #ifdef UNCAPPED
     auto curval= minptr->uncappedCurrentMgDl;
@@ -305,6 +349,7 @@ extern "C" JNIEXPORT  jlong JNICALL fromjava(saveLibre3MinuteL)(JNIEnv *env, jcl
     const uint32_t nowsec=msec/1000L;
     jlong res=save3current(sens,minptr,nowsec);
     save3history(sens,minptr);
+    l3diagAppend(sens,minptr,nowsec);
 
     backup->wakebackup(wakestream);
     wakewithcurrent();
