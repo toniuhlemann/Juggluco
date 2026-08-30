@@ -424,7 +424,20 @@ struct Tings {
     GlucoseMeter  glucosemeters[maxglucosemeters];
     uint8_t gs3id[12];
     uint32_t reserved32;
-    char primarysensor[17]; //16-char sensor name of the persistent primary sensor, ""=none chosen yet (mmap grows, so new installs and upgrades read zeroes)
+/*Primary sensor routing: log of primary tenures. Entry i says: from primaryepochs[i].from
+ on, primaryepochs[i].name is the primary sensor (until the next entry). Values before
+ primaryroutingstart predate the routing and stay visible for all sensors; values in
+ [primaryroutingstart,primaryepochs[0].from) belong to tenures whose record was evicted
+ and stay suppressed. The last entry is the currently stored primary. primaryepochnr==0:
+ none chosen yet (mmap grows, so new installs and upgrades read zeroes). */
+    struct primaryepoch {
+        uint32_t from;
+        char name[17]; //16-char sensor name + NUL
+        };
+    static constexpr const int maxprimaryepochs=64;
+    int32_t primaryepochnr;
+    primaryepoch primaryepochs[maxprimaryepochs];
+    uint32_t primaryroutingstart;
 
 static bool meterMatch(const struct GlucoseMeter &meter,const std::string_view deviceName,uint8_t *address)  {
     if(address) {

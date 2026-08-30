@@ -6,14 +6,10 @@ extern Sensoren *sensors;
 
 
 inline const SensorGlucoseData *getStreamSensor(int &sensorid) {
-	const int primary=primarysensor::index();
 	for(;;sensorid--) {
 		if(sensorid<0)  {
 			return nullptr;
 		}
-		// rival sensors (alive, not primary) never feed web outputs
-		if(primarysensor::rivalof(primary,sensorid))
-			continue;
 		if(const SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
 			if(sens->pollcount()>0)
 				return sens;
@@ -23,33 +19,44 @@ inline const SensorGlucoseData *getStreamSensor(int &sensorid) {
 template <class Funtype>
 uint32_t getitems(char *&outiter,const int  datnr,uint32_t newer,uint32_t older,bool alldata, int interval,Funtype writeitem)  {
 	LOGGER("getitems %d\n",datnr);
+	primarysensor::index(); //resolve a pending handover before reading the series
 	int sensorid=sensors->last();
 	uint32_t timenext=older;
 	int datit=0;
 	uint32_t lasttime=0;
 	while(true) {
 		STARTDATA:
-		const SensorGlucoseData *sens=getStreamSensor(sensorid);;
-		if(!sens) {
-			return lasttime;
+		const SensorGlucoseData *sens;
+		const ScanData *lastallowed;
+		//candidate selection by newest value of the primary time series, so a
+		//sensor without any servable value (e.g. a parallel warm-up sensor) can
+		//neither be chosen nor end the walk early
+		for(;;) {
+			sens=getStreamSensor(sensorid);
+			if(!sens) {
+				return lasttime;
+			}
+			--sensorid;
+			lastallowed=primarysensor::lastallowedstream(sens);
+			if(lastallowed)
+				break;
 		}
-		--sensorid;
 		time_t starttime= sens->getstarttime();
 		if(starttime>=timenext)
 			continue;
 		std::span<const ScanData> gdata=sens->getPolldata();
 		const ScanData *iter=&gdata.end()[-1];
 		if(const SensorGlucoseData *sens2=getStreamSensor(sensorid)) {
-			std::span<const ScanData> gdata2=sens2->getPolldata();
-			const ScanData *last=&gdata2.end()[-1];
-			if(last->t>iter->t) {
+			// The newest and previous stream sensors can overlap when a sensor is replaced.
+			if(primarysensor::lastallowedstream(sens2,lastallowed->t)) {
 				sens=sens2;
-				iter=last;
-				gdata=gdata2;
+				gdata=sens->getPolldata();
+				iter=&gdata.end()[-1];
 				starttime= sens->getstarttime();
 				}
 			}
 		auto *sensorname= sens->shortsensorname();
+		const char *sensfullname=sens->sensorname()->data();
 		LOGGER("getStreamSensor(%d) %s pollcount=%d\n",sensorid+1,sensorname->data(),sens->pollcount());
 		const ScanData *first=&gdata.begin()[0];
                 auto cali=make_calibrator<ScanData>(sens);
@@ -65,7 +72,9 @@ uint32_t getitems(char *&outiter,const int  datnr,uint32_t newer,uint32_t older,
 					return lasttime;
 					}
 
-				if(iter->valid(iter-first)) {
+				//per-value primary routing: only values from this sensor's own
+				//primary tenure belong to the output series
+				if(iter->valid(iter-first)&&primarysensor::allowedat(sensfullname,iter->t)) {
 					if(iter->t<newer) {
 						return lasttime;
 						}

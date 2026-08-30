@@ -72,16 +72,14 @@ std::pair<const SensorGlucoseData *,int> getlaststream(const uint32_t nu) {
    const int total=usedsensors.size();
    int  minutes=15;
 
-    const int primary=primarysensor::index();
+    primarysensor::index(); //resolve a pending handover before reading the series
     for(int i=0;i<total ;i++) {
         const int index=usedsensors[i];
-        if(primarysensor::rivalof(primary,index))
-            continue; //rival sensors never provide the shown current value
         const SensorGlucoseData *hist=sensors->getSensorData(index);
         const int hiermin=hist->getminstreaminterval();
         if(hiermin<minutes)
             minutes=hiermin;
-        const ScanData *poll=hist->lastValidStream();
+        const ScanData *poll=primarysensor::lastallowedstream(hist);
         if(poll) {
             uint32_t then=poll->t;
             if(then>mintime) {
@@ -100,9 +98,10 @@ std::pair<const SensorGlucoseData *,int> getlaststream(const uint32_t nu) {
 
 extern "C" JNIEXPORT jlong  JNICALL   fromjava(lastglucosetime)(JNIEnv *env, jclass cl) {
     const auto [hist,index]=getlaststream(maxwatchage);
-    if(hist) 
-        return hist->lastValidStream()->t*1000LL;
-        
+    if(hist) {
+        if(const ScanData *poll=primarysensor::lastallowedstream(hist))
+            return poll->t*1000LL;
+        }
     return 0LL;
        }
 
@@ -122,7 +121,7 @@ extern "C" JNIEXPORT jobject  JNICALL   fromjava(lastglucose)(JNIEnv *env, jclas
         LOGSTRINGTAG("getlaststream(maxwatchage)=null\n");
         return nullptr;
         }
-    const ScanData *poll=hist->lastValidStream();
+    const ScanData *poll=primarysensor::lastallowedstream(hist);
     if(!poll) {
         return nullptr;
         }

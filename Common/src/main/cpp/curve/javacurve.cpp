@@ -5,6 +5,7 @@
 #include <string>
 #include "share/logs.hpp"
 #include "sensoren.hpp"
+#include "primarysensor.hpp"
 #include "fromjava.h"
 //#include "curve.hpp"
 //#include "nanovg_gl.h"
@@ -820,7 +821,7 @@ extern "C" JNIEXPORT jlong JNICALL fromjava(saylastglucose)(JNIEnv *env, jclass 
  LOGAR("getlaststream(nu)=null");
  return 0;
  }
- const ScanData *poll=hist->lastValidStream();
+ const ScanData *poll=primarysensor::lastallowedstream(hist);
  if(!poll) {
  LOGAR("no stream");
  return 0L;

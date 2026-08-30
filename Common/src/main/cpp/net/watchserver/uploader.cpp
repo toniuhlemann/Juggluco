@@ -203,15 +203,15 @@ static bool uploadCGM3() {
     if(!settings->data()->nightsensor)
         settings->data()->nightsensor=sensors->firstafter(mintime);
     int startsensor= settings->data()->nightsensor;
+    const int primaryind=primarysensor::index(); //resolve a pending handover before applying the epoch rule
+    if(primaryind>=0&&primaryind<startsensor)
+        startsensor=primaryind; //a switch-back to an older sensor re-enters the scan range
 
 /*    constexpr const auto twoweeks=15*24*60*60;
     time_t old=nu-twoweeks; */
 
     int newstartsensor=startsensor;
-    const int primary=primarysensor::index();
     for(int sensorid=last;sensorid>=startsensor;--sensorid) {
-        if(primarysensor::rivalof(primary,sensorid))
-            continue; //rival sensors are not uploaded; their position is kept for a later handover
         if(SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
             auto cali= make_calibrator<ScanData>(sens);
             std::span<const ScanData> gdata=sens->getPolldata();
@@ -222,9 +222,19 @@ static bool uploadCGM3() {
             int left=len-positer;
             bool send=false;
             if(left>=0) {
+                const uint32_t settledbefore=primarysensor::lastepochfrom();
                 for(;positer<len;positer++) { //Geen overlappende data?
                     const ScanData *el= &gdata[positer];
-                    if(el->valid(positer)&&el->gettime()>mintime) {
+                    if(!el->valid(positer)||el->gettime()<=mintime)
+                        continue;
+                    //per-value primary routing: values outside the sensor's own
+                    //primary tenure (e.g. warm-up) are never uploaded, also not later
+                    if(!primarysensor::allowedat(sensorid,el->gettime())) {
+                        if(el->gettime()>=settledbefore)
+                            break; //attribution not final yet: retry next round instead of sealing it via nightiter
+                        continue; //finally outside every tenure: never uploaded
+                        }
+                    {
                         constexpr const int max3entry=300;
                         char buf[max3entry];
 extern char * writev3entry(char *outin,const ScanData *val, const sensorname_t *sensorname,bool server=true);
@@ -247,15 +257,16 @@ extern char * writev3entry(char *outin,const ScanData *val, const sensorname_t *
                             }
                         else {
                             LOGSTRING("nightupload failure\n");
-                            if(send)
-                                settings->data()->nightsensor=sensorid;
-                            else
-                                settings->data()->nightsensor=newstartsensor;
+                            //never raise the scan floor on failure: lower sensors
+                            //with pending values must stay in range next round
+                            settings->data()->nightsensor=startsensor;
                             return false;
                             }
                         }
                     }
-                if(send)
+                //also retain alive sensors without sendable values (e.g. all values
+                //outside their tenure), so they are rescanned once they get one
+                if(send||sens->getmaxtime()>nu)
                     newstartsensor=sensorid;
                 continue;
                 }
@@ -280,16 +291,16 @@ static bool uploadCGM() {
     if(!settings->data()->nightsensor)
         settings->data()->nightsensor=sensors->firstafter(mintime);
     int startsensor= settings->data()->nightsensor;
+    const int primaryind=primarysensor::index(); //resolve a pending handover before applying the epoch rule
+    if(primaryind>=0&&primaryind<startsensor)
+        startsensor=primaryind; //a switch-back to an older sensor re-enters the scan range
     constexpr const int itemsize=350;
 /*
     constexpr const auto twoweeks=15*24*60*60;
     time_t old=nu-twoweeks; */
 
     int newstartsensor=startsensor;
-    const int primary=primarysensor::index();
     for(int sensorid=last;sensorid>=startsensor;--sensorid) {
-        if(primarysensor::rivalof(primary,sensorid))
-            continue; //rival sensors are not uploaded; their position is kept for a later handover
         if(SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
             std::span<const ScanData> gdata=sens->getPolldata();
             const sensorname_t *sensorname=sens->shortsensorname();
@@ -314,11 +325,24 @@ constexpr const int            maxitems=10440;
                 unique_ptr<char[]> destruct(start);
                 char *ptr=start;
                 *ptr++='[';
+                const uint32_t settledbefore=primarysensor::lastepochfrom();
                 for(;positer<len;positer++) { //Geen overlappende data?
                     const ScanData &el= gdata[positer];
-                    if(el.valid(positer)&&el.gettime()>mintime) {
-                        ptr+=mkuploaditem(sens,ptr,sensornamestr,el);
+                    if(!el.valid(positer)||el.gettime()<=mintime)
+                        continue;
+                    //per-value primary routing: values outside the sensor's own
+                    //primary tenure (e.g. warm-up) are never uploaded, also not later
+                    if(!primarysensor::allowedat(sensorid,el.gettime())) {
+                        if(el.gettime()>=settledbefore) {
+                            //attribution not final yet: a later backdated handover may
+                            //still claim this value for the primary series, so stop
+                            //here instead of sealing it away via nightiter
+                            len=positer;
+                            break;
+                            }
+                        continue; //finally outside every tenure: never uploaded
                         }
+                    ptr+=mkuploaditem(sens,ptr,sensornamestr,el);
                     }
                 LOGGER("%d new positer=%d\n",sensorid,len);
                 if(ptr>(start+1)) {

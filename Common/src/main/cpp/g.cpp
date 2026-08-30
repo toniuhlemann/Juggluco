@@ -1026,7 +1026,7 @@ extern std::pair<const SensorGlucoseData *,int> getlaststream(const uint32_t nu)
 extern "C" JNIEXPORT jlongArray JNICALL   fromjava(getlastGlucose)(JNIEnv *env, jclass cl) {
     auto nu=time(nullptr);
     if(const auto [hist,_]=getlaststream(nu);hist) {
-        const ScanData *poll=hist->lastValidStream();
+        const ScanData *poll=primarysensor::lastallowedstream(hist);
         if(poll) {
             jlong uit[2];
             uit[0]=poll->gettime();

@@ -1005,19 +1005,42 @@ static bool showdevicestatus(recdata *outdata) { //seems to be used for battery 
    } */
 
 static bool    currentjson(std::string_view orign,recdata *outdata);
-static bool givecurrent(std::string_view origin,recdata *outdata) {
+
+/* Newest value of the primary time series. Candidates are compared by value
+ * time, so a finished ex-primary can never shadow the live primary's newer
+ * values, and a just-promoted sensor with only warm-up data falls back to the
+ * old primary's last value until its first in-tenure reading arrives. */
+struct newestreading {
+   const SensorGlucoseData *sens;
+   const ScanData *item;
+   int sensorid;
+   };
+static bool getnewestallowed(newestreading &out) {
+   out={nullptr,nullptr,-1};
+   if(!sensors)
+      return false;
+   primarysensor::index(); //resolve a pending handover before reading
    int sensorid=sensors->last();
-   const SensorGlucoseData *sens=getStreamSensor(sensorid);;
-   if(!sens)
-      return givenothing(outdata);
-   const std::span<const ScanData> gdata=sens->getPolldata();
-   const ScanData *first=&gdata.begin()[0];
-   const ScanData *iter=&gdata.end()[-1];
-   while(!iter->valid()) {
-      if(--iter<=first)
-         return givenothing(outdata);
+   //bounded walk: the current value can only live in the most recent sensors
+   for(int visited=0;visited<8;++visited) {
+      const SensorGlucoseData *sens=getStreamSensor(sensorid);
+      if(!sens)
+         break;
+      const int thisid=sensorid--;
+      const uint32_t mint=out.item?out.item->t:0;
+      if(const ScanData *item=primarysensor::lastallowedstream(sens,mint)) {
+         out={sens,item,thisid};
+         }
       }
-   const ScanData *value=iter;;
+   return out.item!=nullptr;
+   }
+
+static bool givecurrent(std::string_view origin,recdata *outdata) {
+   newestreading newest;
+   if(!getnewestallowed(newest))
+      return givenothing(outdata);
+   const SensorGlucoseData *sens=newest.sens;
+   const ScanData *value=newest.item;
    outdata->allbuf=new(std::nothrow) char[webheaderreserve+1172];
    if(!outdata->allbuf)
       return outofmemory(outdata);
@@ -1190,18 +1213,15 @@ static bool getv3entries(const char *cmdstart,const char *cmdend,std::string_vie
 
 char *getdeltastr(char *start) {
    char *outiter=start;
-   int sensorid=sensors->last();
-   const SensorGlucoseData *sens=getStreamSensor(sensorid);;
-   if(!sens)
+   newestreading newest;
+   if(!getnewestallowed(newest))
       return start;
+   const SensorGlucoseData *sens=newest.sens;
+   const ScanData *iter=newest.item;
    const std::span<const ScanData> gdata=sens->getPolldata();
    const ScanData *first=&gdata.begin()[0];
-   const ScanData *iter=&gdata.end()[-1];
-   while(!iter->valid()) {
-      if(--iter<=first)
-         return start;
-      }
    const char *sensorname= sens->shortsensorname()->data();
+   const char *sensfullname=sens->sensorname()->data();
    int timedif=4*62;
    auto nu=iter->gettime();
 
@@ -1217,7 +1237,7 @@ char *getdeltastr(char *start) {
    auto old=nu-timedif;
    while(iter>=first) {
       auto wastime=iter->gettime();
-      if(wastime<old) {
+      if(wastime<old&&primarysensor::allowedat(sensfullname,wastime)) {
          int prevmgdl;
          if(double   calibrated=cali.calibrateNow(*iter);!isnan(calibrated)) {
                 prevmgdl=(int)round(calibrated);
@@ -1244,17 +1264,11 @@ char *getdeltastr(char *start) {
 
 //{"bgnow":{"mean":169,"last":169,"mills":1676751516000,"sgvs":[{"_id":"63f132b14d77ce842e5700eb","mgdl":169,"mills":1676751516000,"device":"share2","direction":"FortyFiveUp","type":"sgv","scaled":169}]}}
 static char * givebgnow(char *start) {
-   int sensorid=sensors->last();
-   const SensorGlucoseData *sens=getStreamSensor(sensorid);;
-   if(!sens)
+   newestreading newest;
+   if(!getnewestallowed(newest))
       return start;
-   const std::span<const ScanData> gdata=sens->getPolldata();
-   const ScanData *first=&gdata.begin()[0];
-   const ScanData *iter=&gdata.end()[-1];
-   while(!iter->valid()) {
-      if(--iter<=first)
-         return start;
-      }
+   const SensorGlucoseData *sens=newest.sens;
+   const ScanData *iter=newest.item;
    longlongtype mmsectime=iter->gettime()*1000LL;
   int mgdl;
   auto cali=make_calibrator<ScanData>(sens);
@@ -1875,25 +1889,11 @@ struct livereading {
 static bool getlatestlivereading(bool calibrate,livereading &out) {
    if(!sensors)
       return false;
-   const SensorGlucoseData *latestsensor=nullptr;
-   const ScanData *latestdata=nullptr;
-   int latestsensorid=-1;
-   int sensorid=sensors->last();
-   // The newest and previous stream sensors can overlap when a sensor is replaced.
-   for(int found=0;found<2&&sensorid>=0;++found) {
-      const SensorGlucoseData *sens=getStreamSensor(sensorid);
-      if(!sens)
-         break;
-      const int thissensorid=sensorid--;
-      if(const ScanData *item=sens->lastValidStream();item&&(!latestdata||item->t>latestdata->t)) {
-         latestdata=item;
-         latestsensor=sens;
-         latestsensorid=thissensorid;
-         }
-      }
-   if(!latestdata)
+   newestreading newest;
+   if(!getnewestallowed(newest))
       return false;
-   out={*latestdata,latestsensorid,false};
+   const SensorGlucoseData *latestsensor=newest.sens;
+   out={*newest.item,newest.sensorid,false};
    if(calibrate) {
       auto cali=make_calibrator<ScanData>(latestsensor);
       const double calibrated=cali.calibrateONE(out.data);
