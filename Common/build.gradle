@@ -36,6 +36,13 @@ if(false) {
 }
 
 def CMAKEVERSION = "4.1.2"
+//short commit id, shown in the version name of the toni debug channel and in
+//BuildConfig.GIT_COMMIT, so every installed APK identifies its exact source
+def gitShort = 'unknown'
+try {
+    gitShort = providers.exec { commandLine 'git', 'rev-parse', '--short=8', 'HEAD' }.standardOutput.asText.get().trim()
+} catch (Exception ignored) {
+}
 android {
     namespace = "tk.glucodata"
 
@@ -103,6 +110,7 @@ android {
 //    multiDexEnabled true
 
         buildConfigField 'String', 'BUILD_TIME', 'new java.text.SimpleDateFormat("HH:mm:ss dd-MMM-yyyy").format(new java.util.Date(' + System.currentTimeMillis() + 'L))'
+        buildConfigField 'String', 'GIT_COMMIT', "\"${gitShort}\""
         buildConfigField 'int', 'isRelease', '0'
         buildConfigField 'int', 'isReleaseID', '0'
 
@@ -430,7 +438,7 @@ buildTypes {
          manifestPlaceholders["requireWatch"] = "false"
          manifestPlaceholders["debuggable"] = "true"
         applicationIdSuffix ".debug"
-            versionNameSuffix 'DEBUG'
+            versionNameSuffix "DEBUG-toni+${gitShort}"
 
             buildConfigField 'int', 'isReleaseID', '0'
              buildConfigField 'int', 'doLog', '1'

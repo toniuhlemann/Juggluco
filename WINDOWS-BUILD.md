@@ -32,6 +32,39 @@ Textdatei wird stattdessen mit Identitaets-Makros (`RTL`/`RTLFMT`) und `u8`/`u8R
 Prefix-Strip durchgereicht. Einzige Folge: arabische UI-Labels rendern in Lese- statt
 Darstellungsreihenfolge. Alle anderen Sprachen unberuehrt.
 
+## Eigener Release-Kanal (stabile Signatur, seit 30.08.2026)
+Upstream signiert ALLE Buildtypen (auch debug) mit `signingConfigs.alg`; ohne eigene
+Konfiguration faellt das auf den eingecheckten `everyone.keystore` mit oeffentlich
+bekanntem Passwort zurueck — fuer den Produktivkanal ungeeignet (jeder koennte ein
+"Update" bauen). Der Upstream-Mechanismus liest stattdessen vier Properties aus
+`~/.gradle/gradle.properties`:
+```
+thepassword = <secret>
+thekeyalias = jugglucotoni
+thekeypassword = <secret>
+thekeyfile = C:/Users/toniu/keystores/juggluco-toni.jks
+```
+- Keystore: `C:\Users\toniu\keystores\juggluco-toni.jks` (RSA 4096, Alias `jugglucotoni`,
+  Zert-SHA256 `EE:50:82:A0:AD:B8:A3:71:87:CF:CC:B4:3F:AA:74:53:BE:93:CB:31:BC:8B:32:EE:9F:F8:B8:E8:DF:3A:D4:05`).
+- **BACKUP-PFLICHT: Keystore-Datei UND `~/.gradle/gradle.properties` extern sichern.**
+  Ohne den Schluessel ist kein In-place-Update der installierten App mehr moeglich
+  (Neuinstallation = Bonding-/Datenverlust). Keystore und Passwoerter gehoeren NIE ins Repo.
+- Der debug-Buildtype traegt auf diesem Branch das Versionssuffix `DEBUG-toni+<commit8>`
+  (+ `BuildConfig.GIT_COMMIT`): App-Info am Geraet zeigt damit den exakten Quellstand.
+- Signatur einer APK pruefen: `build-tools/36.0.0/apksigner verify --print-certs <apk>`.
+
+### Rollback-Build
+Beide APKs (Produktions-Stand und Rollback-Stand `l3-diagnostics-toni`) haben denselben
+versionCode (901) und ab jetzt dieselbe Signatur -> am Geraet in BEIDE Richtungen per
+`adb install -r` wechselbar, ohne Deinstallation. Rollback bauen:
+```
+git checkout --detach <l3-diagnostics-toni-Commit>
+JAVA_HOME=... ./gradlew :Common:assembleMobileLibre3SiDexNogoogleDebug
+git checkout primary-sensor-routing-toni
+```
+(Der Rollback-Stand hat kein toni-Versionssuffix — daran am Geraet erkennbar.)
+Gebaute Paare liegen mit Manifest unter `C:\Users\toniu\JugglucoBuilds\`.
+
 ## Bekannte Eigenheiten
 - Release-Builds definieren `NOLOG=1` + `NORAWSTREAM=1`; Debug-Builds loggen (`SCANLOG`)
   und schreiben den rohen BLE-Stream in die Sensor-Verzeichnisse (`rawstream`-Datei).
