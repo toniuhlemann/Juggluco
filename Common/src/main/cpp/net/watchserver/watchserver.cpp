@@ -1998,6 +1998,68 @@ static bool makeimage(Getopts &opts,std::string_view origin,recdata *outdata,Mak
     return true;
     }
 
+/* /x/sensor-status: read-only routing and diagnostic state for the Viewer.
+ * "routing":"primary-epochs-v1" is the capability marker: seeing it, the Viewer
+ * can take /x/stream as the already routed primary series and use epochFrom as
+ * the exact series break; without it, it falls back to its own gate. */
+static bool givesensorstatus(std::string_view origin,recdata *outdata) {
+   if(!sensors)
+      return givenothing(outdata);
+   const auto stat=primarysensor::status();
+   const uint32_t nu=time(nullptr);
+   constexpr const int maxshown=12;
+   int shown[maxshown];
+   int count=0;
+   const int last=sensors->last();
+   for(int i=last;i>=0&&count<maxshown;--i) {
+      if(!sensors->getsensor(i)->name[0])
+         continue;
+      sensors->checkinfo(i,nu);
+      const sensor *sen=sensors->getsensor(i);
+      //all sensors still running, plus recently ended ones (changeover window)
+      const bool recent=sen->endtime&&(nu-sen->endtime)<=48*60*60;
+      if(i!=stat.primaryindex&&sen->finished&&!recent)
+         continue;
+      shown[count++]=i;
+      }
+   char *buf=outdata->allbuf=new(std::nothrow) char[webheaderreserve+512+256*count];
+   if(!buf)
+      return outofmemory(outdata);
+   char *start=buf+webheaderreserve,*outiter=start;
+   outiter+=sprintf(outiter,R"({"routing":"primary-epochs-v1","now":%u,)",nu);
+   if(stat.primaryindex>=0)
+      outiter+=sprintf(outiter,R"("primary":"%s",)",sensors->shortsensorname(stat.primaryindex)->data());
+   else
+      addar(outiter,R"("primary":null,)");
+   outiter+=sprintf(outiter,R"("epochFrom":%u,"routingStart":%u,"epochCount":%d,"epochReason":"%s","sensors":[)",
+      stat.epochfrom,stat.routingstart,stat.epochcount,primarysensor::reasonname(stat.reason));
+   for(int it=0;it<count;++it) {
+      const int i=shown[it];
+      const sensor *sen=sensors->getsensor(i);
+      uint32_t lastdata=sen->endtime;
+      uint32_t expectedend=sen->maxtime();
+      bool streaming=false;
+      if(const SensorGlucoseData *hist=sensors->getSensorData(i)) {
+         if(const uint32_t used=hist->lastused();used>lastdata)
+            lastdata=used;
+         expectedend=hist->expectedEndTime();
+         streaming=hist->pollcount()>0;
+         }
+      outiter+=sprintf(outiter,
+         R"(%s{"serial":"%s","primary":%s,"finished":%s,"streaming":%s,"started":%u,"lastData":%u,"ageSeconds":%lld,"expectedEnd":%u})",
+         it?",":"",sensors->shortsensorname(i)->data(),
+         i==stat.primaryindex?"true":"false",
+         sen->finished?"true":"false",
+         streaming?"true":"false",
+         sen->starttime,lastdata,
+         lastdata?(long long)nu-(long long)lastdata:-1LL,
+         expectedend);
+      }
+   addar(outiter,"]}\n");
+   mkjsonheader(start,outiter,false,outdata,origin);
+   return true;
+   }
+
 std::string_view jugglucocommand="x/";
 /*
 #include "reload.h"
@@ -2451,6 +2513,11 @@ static bool jugglucos(const char * const input,int size, std::string_view hostna
         constexpr const int namesize=sizeof(live)-1;
         Getopts opts(input+namesize,size-namesize);
         return givelive(opts,headonly,origin,outdata);
+        }
+      }
+    {constexpr const char sensorstatus[]="sensor-status";
+    if(!strarcmp(sensorstatus,input)) {
+        return givesensorstatus(origin,outdata);
         }
       }
     {constexpr const char summary[]="summarygraph";

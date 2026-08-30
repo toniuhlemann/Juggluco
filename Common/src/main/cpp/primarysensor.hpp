@@ -55,6 +55,23 @@ namespace primarysensor {
 
 inline std::mutex lock;
 
+/* how a tenure began; stored per epoch (Tings::primaryepoch::reason) */
+enum epochreason : uint8_t {
+   REASON_UNKNOWN=0,
+   REASON_MIGRATION=1, //first resolution ever
+   REASON_AUTO=2,      //old primary finished/expired/removed
+   REASON_MANUAL=3,    //confirmed selection in the sensor dialog
+   };
+
+inline const char *reasonname(const uint8_t reason) {
+   switch(reason) {
+      case REASON_MIGRATION: return "migration";
+      case REASON_AUTO: return "auto";
+      case REASON_MANUAL: return "manual";
+      default: return "unknown";
+      }
+   }
+
 /* alive per Juggluco's own lifecycle: known, not finished. checkinfo() applies
  * the existing expiry rules and may set finished itself. */
 inline bool alive(const int ind,const uint32_t nu) {
@@ -89,7 +106,7 @@ inline const char *storednamelocked() {
 
 /* keeps the epoch list sorted even across clock jumps; sets the routing anchor
  * on the very first epoch */
-inline void appendepochlocked(const char *name16,uint32_t from) {
+inline void appendepochlocked(const char *name16,uint32_t from,const uint8_t reason) {
    auto *dat=settings->data();
    int nr=epochcountlocked();
    if(nr==0)
@@ -109,9 +126,10 @@ inline void appendepochlocked(const char *name16,uint32_t from) {
    epoch.from=from;
    memcpy(epoch.name,name16,sensornamelen);
    epoch.name[sensornamelen]='\0';
+   epoch.reason=reason;
    dat->primaryepochnr=nr+1;
 #ifdef LOGGER
-   LOGGER("primarysensor epoch %d: %s from %u\n",nr,epoch.name,from);
+   LOGGER("primarysensor epoch %d: %s from %u reason %d\n",nr,epoch.name,from,reason);
 #endif
    }
 
@@ -226,6 +244,7 @@ inline int resolvelocked(const uint32_t nu) {
    const int take=best>=0?best:(fallback>=0?fallback:unstarted);
    if(take>=0) {
       uint32_t from;
+      const uint8_t reason=stored?REASON_AUTO:REASON_MIGRATION;
       if(stored) {
          //handover: the successor takes over right after the old primary's last
          //stored value, covering the detection delay of the lifecycle check;
@@ -250,7 +269,7 @@ inline int resolvelocked(const uint32_t nu) {
          }
       if(from>nu)
          from=nu;
-      appendepochlocked(sensors->getsensor(take)->name,from);
+      appendepochlocked(sensors->getsensor(take)->name,from,reason);
       }
    return take;
    }
@@ -283,6 +302,29 @@ inline void setprimaryindex(const int ind) {
 #endif
       return;
       }
-   appendepochlocked(name,nu);
+   appendepochlocked(name,nu,REASON_MANUAL);
+   }
+
+/* read-only snapshot of the routing state for the status endpoint; resolves a
+ * pending handover first so the reported primary is current */
+struct routingstatus {
+   int primaryindex;
+   uint32_t epochfrom;
+   uint32_t routingstart;
+   int epochcount;
+   uint8_t reason;
+   };
+inline routingstatus status() {
+   std::lock_guard<std::mutex> guard(lock);
+   routingstatus out{resolvelocked(time(nullptr)),0,0,0,REASON_UNKNOWN};
+   const int nr=epochcountlocked();
+   out.epochcount=nr;
+   if(nr>0) {
+      const auto *dat=settings->data();
+      out.epochfrom=dat->primaryepochs[nr-1].from;
+      out.routingstart=dat->primaryroutingstart;
+      out.reason=dat->primaryepochs[nr-1].reason;
+      }
+   return out;
    }
 }

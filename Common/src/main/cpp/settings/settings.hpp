@@ -433,6 +433,7 @@ struct Tings {
     struct primaryepoch {
         uint32_t from;
         char name[17]; //16-char sensor name + NUL
+        uint8_t reason; //primarysensor::epochreason: how this tenure began (fits the former padding)
         };
     static constexpr const int maxprimaryepochs=64;
     int32_t primaryepochnr;
