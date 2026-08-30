@@ -2060,6 +2060,147 @@ static bool givesensorstatus(std::string_view origin,recdata *outdata) {
    return true;
    }
 
+/* /x/l3diag: read-only access to the per-sensor Libre-3 diagnostic CSV
+ * (l3diag.csv, written additively by l3diagAppend). Serves ALL sensors in the
+ * requested window - the warm-up comparison between a parallel and the primary
+ * sensor is the point - and prefixes every raw CSV line with sensorId and
+ * primaryAtTime. First line is the schema marker "#l3diag-v1". This endpoint
+ * changes nothing: no bluetooth path, no stored values, no epochs (allowedat
+ * only reads; a pending handover is not resolved here). */
+static bool givel3diag(Getopts &opts,std::string_view origin,recdata *outdata) {
+   if(!sensors)
+      return givenothing(outdata);
+   constexpr const uint32_t maxwindow=48*60*60;
+   constexpr const size_t maxfilebytes=4*1024*1024;
+   constexpr const size_t maxresponse=8*1024*1024;
+   const uint32_t nu=time(nullptr);
+   uint32_t endtime=opts.end;
+   if(endtime>nu)
+      endtime=nu;
+   uint32_t starttime=opts.start;
+   if(endtime-starttime>maxwindow||starttime>endtime)
+      starttime=endtime-maxwindow;
+   const auto indices=sensors->sensorsInPeriod(starttime,endtime);
+   struct filebuf {
+      char *data;
+      size_t size;
+      int sensorindex;
+      };
+   constexpr const int maxfiles=12;
+   filebuf files[maxfiles];
+   int nfiles=0;
+   size_t total=0;
+   for(const int ind:indices) {
+      if(nfiles>=maxfiles)
+         break;
+      SensorGlucoseData *sens=sensors->getSensorData(ind);
+      if(!sens||!sens->isLibre3())
+         continue;
+      pathconcat file(sens->getsensordir(),"l3diag.csv");
+      const int fd=open(file.data(),O_RDONLY);
+      if(fd<0)
+         continue;
+      struct stat st;
+      //snapshot the size at open: a concurrent append never gets past it, and
+      //an incomplete last line (no newline yet) is dropped by the line parser
+      if(fstat(fd,&st)||st.st_size<=0) {
+         close(fd);
+         continue;
+         }
+      size_t toread=(size_t)st.st_size;
+      if(toread>maxfilebytes)
+         toread=maxfilebytes;
+      char *buf=new(std::nothrow) char[toread];
+      if(!buf) {
+         close(fd);
+         break;
+         }
+      size_t got=0;
+      while(got<toread) {
+         const ssize_t r=read(fd,buf+got,toread-got);
+         if(r<=0)
+            break;
+         got+=r;
+         }
+      close(fd);
+      if(!got) {
+         delete[] buf;
+         continue;
+         }
+      files[nfiles++]={buf,got,ind};
+      total+=got;
+      }
+   //response: schema marker + per emitted line "serial\t0|1\t<raw csv line>";
+   //the prefix (<=14 bytes) is always shorter than a data line (>=25 bytes)
+   size_t alloc=webheaderreserve+256+2*total;
+   if(alloc>maxresponse)
+      alloc=maxresponse;
+   char *out=outdata->allbuf=new(std::nothrow) char[alloc];
+   if(!out) {
+      for(int i=0;i<nfiles;i++)
+         delete[] files[i].data;
+      return outofmemory(outdata);
+      }
+   char *start=out+webheaderreserve,*outiter=start;
+   const char *const hardend=out+alloc-32;
+   addar(outiter,"#l3diag-v1\n");
+   bool wroteheader=false;
+   bool truncated=false;
+   for(int f=0;f<nfiles&&!truncated;f++) {
+      const char *serial=sensors->shortsensorname(files[f].sensorindex)->data();
+      const char *fullname=sensors->getsensor(files[f].sensorindex)->name;
+      const size_t seriallen=strlen(serial);
+      const char *iter=files[f].data;
+      const char *const ends=iter+files[f].size;
+      while(iter<ends) {
+         const char *nl=(const char*)memchr(iter,'\n',ends-iter);
+         if(!nl)
+            break; //incomplete last line of the snapshot: ignore
+         const size_t linelen=nl-iter;
+         if(linelen) {
+            if(*iter<'0'||*iter>'9') {
+               //header line: emit once, prefixed with the added columns
+               if(!wroteheader&&outiter+linelen+32<hardend) {
+                  addar(outiter,"sensorId\tprimaryAtTime\t");
+                  memcpy(outiter,iter,linelen);
+                  outiter+=linelen;
+                  *outiter++='\n';
+                  wroteheader=true;
+                  }
+               }
+            else {
+               uint32_t t=0;
+               const char *p=iter;
+               while(p<nl&&*p>='0'&&*p<='9')
+                  t=t*10u+(uint32_t)(*p++-'0');
+               if(t>=starttime&&t<=endtime) {
+                  if(outiter+linelen+seriallen+8>=hardend) {
+                     truncated=true;
+                     break;
+                     }
+                  memcpy(outiter,serial,seriallen);
+                  outiter+=seriallen;
+                  *outiter++='\t';
+                  *outiter++=primarysensor::allowedat(fullname,t)?'1':'0';
+                  *outiter++='\t';
+                  memcpy(outiter,iter,linelen);
+                  outiter+=linelen;
+                  *outiter++='\n';
+                  }
+               }
+            }
+         iter=nl+1;
+         }
+      }
+   if(truncated)
+      addar(outiter,"#truncated\n");
+   for(int i=0;i<nfiles;i++)
+      delete[] files[i].data;
+   constexpr const std::string_view plain=R"(text/plain; charset=utf-8)";
+   mktypeheader(start,outiter,false,outdata,plain,origin);
+   return true;
+   }
+
 std::string_view jugglucocommand="x/";
 /*
 #include "reload.h"
@@ -2518,6 +2659,13 @@ static bool jugglucos(const char * const input,int size, std::string_view hostna
     {constexpr const char sensorstatus[]="sensor-status";
     if(!strarcmp(sensorstatus,input)) {
         return givesensorstatus(origin,outdata);
+        }
+      }
+    {constexpr const char l3diag[]="l3diag";
+    if(!strarcmp(l3diag,input)) {
+        constexpr const int namesize=sizeof(l3diag)-1;
+        Getopts opts(input+namesize,size-namesize,3600);
+        return givel3diag(opts,origin,outdata);
         }
       }
     {constexpr const char summary[]="summarygraph";
