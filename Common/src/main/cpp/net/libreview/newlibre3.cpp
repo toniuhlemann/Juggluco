@@ -33,6 +33,7 @@
 #include "settings/settings.hpp"
 #include "SensorGlucoseData.hpp"
 #include "share/serial.hpp"
+#include "primarysensor.hpp"
 #include "libreview.hpp"
 #ifdef LIBRENUMBERS
 #include "librenumbers.hpp"
@@ -278,9 +279,12 @@ static int sendallcurrent(uint32_t nu,SensorGlucoseData *sens,char *buf,int *las
 	if(start>ends)
 		return 0;
 	const ScanData *startstream=sens->beginpolls();
+	const char *sensname=sens->sensorname()->data();
 	for(int i=ends;i>=start;i--) {
 		const ScanData *el=startstream+i;
-		if(el->current(i)) {
+		//per-value primary routing: the reported current glucose must belong to
+		//the primary time series (no warm-up value of a parallel sensor)
+		if(el->current(i)&&primarysensor::allowedat(sensname,el->gettime())) {
 			int64_t histor=libreviewSensorNameID(sens);
 			int wrote=addcurrent(buf,histor,el,viewed);
 			return wrote;
@@ -301,11 +305,21 @@ int allhistory(SensorGlucoseData *sens,char *buf,uint32_t *lasttime,int *nextnum
 		const Glucose *gl=sens->getglucose(iter);
 		if(gl->valid()&&gl->gettime()>*lasttime)
 			break;
-		
+
 		}
+	const uint32_t settledbefore=primarysensor::lastepochfrom();
+	const char *sensname=sens->sensorname()->data();
 	for(;iter<=endpos;iter++) {
 		const Glucose *gl=sens->getglucose(iter);
 		if(gl->valid()) {
+			//per-value primary routing: LibreView receives one continuous primary
+			//series; values outside this sensor's own tenure (e.g. warm-up of a
+			//parallel sensor) are never uploaded, also not later
+			if(!primarysensor::allowedat(sensname,gl->gettime())) {
+				if(gl->gettime()>=settledbefore)
+					break; //attribution not final yet: retry next round instead of sealing it via libreviewnotsend
+				continue; //finally outside every tenure: consumed without upload
+				}
 			pos+=histel3_2str(gl,histor,buf+pos);
 			*lasttime=gl->gettime();
 			buf[pos++]=',';
@@ -335,6 +349,14 @@ bool sendnumbers3() {
 	}
 bool sendlibre3viewdata(bool hasnewcurrent,uint32_t nu) {
 	int startsensor=settings->data()->startlibre3view;
+	const int primaryind=primarysensor::index();
+	if(primaryind>=0&&primaryind<startsensor) {
+		//a switch-back to a lower-index sensor must re-enter the upload range,
+		//otherwise its new tenure would never reach LibreView
+		SensorGlucoseData *prim=sensors->getSensorData(primaryind);
+		if(prim&&prim->isLibre3())
+			startsensor=primaryind;
+		}
 	int lastsensor=sensors->last();
 	int inhistory=0;
 	if(lastsensor<startsensor)	{
@@ -409,6 +431,13 @@ constexpr const int  bytesnumbers=0;
 	lastsensor=lastlibre3;
 LIBRELOGGER("startsensor=%d lastsensor=%d\n",startsensor,lastsensor);
 SensorGlucoseData *lastsensdata=(lastsensor<0)?nullptr:sensors->getSensorData(lastsensor); //TODO later?
+if(lastsensor>=0&&primaryind>=0&&primaryind!=lastsensor) {
+	//current glucose and sensorstart report the PRIMARY sensor, so a parallel
+	//warm-up sensor at a higher index cannot black out current-value reporting
+	SensorGlucoseData *prim=sensors->getSensorData(primaryind);
+	if(prim&&prim->isLibre3())
+		lastsensdata=prim;
+	}
 
 	if(bytesnumbers==0&&inhistory<=0) {
 		if(!hasnewcurrent)
