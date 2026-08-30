@@ -57,6 +57,7 @@ sighandler_t bsd_signal(int signum, sighandler_t handler);
 #include "settings/settings.hpp"
 #include "datbackup.hpp"
 #include "error_codes.h"
+#include "primarysensor.hpp"
 #ifdef DYNLINK
 #define abbottdec(x) (*x)
 #define abbottcall(x) x
@@ -1241,8 +1242,59 @@ extern "C" JNIEXPORT jobjectArray  JNICALL   fromjava(activeSensors)(JNIEnv *env
          env->SetObjectArrayElement(sensjar,i,env->NewStringUTF(names[i]));
 
     return sensjar;
-    } 
+    }
 #endif
+
+static constexpr const int shortsensornamelen=11;
+static bool getshortsensorname(JNIEnv *env,jstring jsensor,char *sensor) {
+    if(!jsensor)
+        return false;
+    jint getlen= env->GetStringUTFLength( jsensor);
+    if(getlen>shortsensornamelen)
+        getlen=shortsensornamelen;
+    env->GetStringUTFRegion( jsensor, 0,getlen, sensor);
+    sensor[getlen]='\0';
+    return getlen>0;
+    }
+
+/*Resolved primary sensor as short name, null when none can be resolved. */
+extern "C" JNIEXPORT jstring JNICALL   fromjava(getprimarysensor)(JNIEnv *env, jclass cl) {
+    if(!sensors)
+        return nullptr;
+    const int primary=primarysensor::index();
+    if(primary<0)
+        return nullptr;
+    return env->NewStringUTF(sensors->shortsensorname(primary)->data());
+    }
+
+/*Manual, confirmed primary selection by short sensor name. */
+extern "C" JNIEXPORT void JNICALL   fromjava(setprimarysensor)(JNIEnv *env, jclass cl,jstring jsensor) {
+    if(!sensors)
+        return;
+    char sensor[shortsensornamelen+1];
+    if(!getshortsensorname(env,jsensor,sensor))
+        return;
+    const int ind=sensors->sensorindexshort(sensor);
+    if(ind<0) {
+        LOGGER("setprimarysensor: unknown sensor %s\n",sensor);
+        return;
+        }
+    LOGGER("setprimarysensor %s\n",sensor);
+    primarysensor::setprimaryindex(ind);
+    }
+
+/*true when this sensor may feed live outputs: it is the primary, or no primary resolves. */
+extern "C" JNIEXPORT jboolean JNICALL   fromjava(isprimarysensor)(JNIEnv *env, jclass cl,jstring jsensor) {
+    if(!sensors)
+        return true;
+    const int primary=primarysensor::index();
+    if(primary<0)
+        return true;
+    char sensor[shortsensornamelen+1];
+    if(!getshortsensorname(env,jsensor,sensor))
+        return false;
+    return !strncmp(sensor,sensors->shortsensorname(primary)->data(),shortsensornamelen);
+    }
 
 //extern "C" JNIEXPORT void JNICALL   fromjava(saveState)(JNIEnv *envin, jclass cl,jlong dataptr) {
 

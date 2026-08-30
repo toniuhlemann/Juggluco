@@ -424,6 +424,7 @@ struct Tings {
     GlucoseMeter  glucosemeters[maxglucosemeters];
     uint8_t gs3id[12];
     uint32_t reserved32;
+    char primarysensor[17]; //16-char sensor name of the persistent primary sensor, ""=none chosen yet (mmap grows, so new installs and upgrades read zeroes)
 
 static bool meterMatch(const struct GlucoseMeter &meter,const std::string_view deviceName,uint8_t *address)  {
     if(address) {

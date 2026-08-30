@@ -101,6 +101,9 @@
  <string name="invaliddays">\' invalid. Days should be a natural number.</string>
  <string name="summarygraph">Summary graph</string>
  <string name="forget">Forget</string>
+ <string name="primarysensor" translatable="false">Primary sensor</string>
+ <string name="setprimary" translatable="false">Make primary</string>
+ <string name="setprimarymessage" translatable="false">Route all live outputs (AAPS/xDrip broadcast, widget, web server) to this sensor?</string>
  <string name="reenable">Reenable</string>
  <string name="failure_info">Info</string>
  <string name="last_failure">Last failure</string>

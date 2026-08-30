@@ -9,7 +9,7 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:columnCount="21"
-    android:rowCount="8"
+    android:rowCount="9"
     android:paddingEnd="2dp" 
     android:paddingStart="15dp"
     android:paddingTop="9dp"
@@ -169,6 +169,23 @@
         <Button android:id="@+id/close" android:layout_column="15" android:layout_row="7" android:layout_columnSpan="5" android:text="@string/closename"
 
         />
+
+        <TextView
+            android:id="@+id/primarystatus"
+            android:layout_column="0"
+            android:layout_row="8"
+            android:layout_columnSpan="7"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+        <Button
+            android:id="@+id/setprimary"
+            android:layout_column="7"
+            android:layout_row="8"
+            android:layout_columnSpan="5"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/setprimary" />
 
 
 

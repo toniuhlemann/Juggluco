@@ -265,6 +265,12 @@ static private int low(long tim,notGlucose    sglucose,float gl,float rate,int a
 
         if(gl==0.0)
             return;
+        //primary sensor routing: values of non-primary sensors are received and
+        //stored, but never reach alarms, displays or broadcasts
+        if(!Natives.isprimarysensor(SerialNumber)) {
+            {if(doLog) {Log.i(LOG_ID,SerialNumber+" is not the primary sensor: no live output");};};
+            return;
+            }
         if(glucosealarms == null) {
             Log.e(LOG_ID,"glucosealarms==null");
             return;
@@ -429,7 +435,7 @@ protected void handleGlucoseResult(long res,long timmsec) {
             dowithglucose(SerialNumber, (int)Math.round(glumgL/10.0f),gl,rate, alarm, timmsec,sensorstartmsec,showtime,sensorgen);
             charcha[0] = timmsec;
             if(!isWearable) {
-                if(Natives.gethealthConnect( )) {
+                if(Natives.gethealthConnect( )&&Natives.isprimarysensor(SerialNumber)) {
                     if(Build.VERSION.SDK_INT >= 28) {
                     if(dohealth(this)) {
                             final long sensorptr = Natives.getsensorptr(dataptr);//TODO: set sensorptr in SuperGattCallback?

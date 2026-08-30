@@ -28,6 +28,7 @@
 #include "share/fromjava.h"
 #include "datbackup.hpp"
 #include "gluconfig.hpp"
+#include "primarysensor.hpp"
 
 #define LOGGERTAG(...) LOGGER("watchvalue: " __VA_ARGS__)
 #define LOGSTRINGTAG(...) LOGSTRING("watchvalue: " __VA_ARGS__)
@@ -71,8 +72,11 @@ std::pair<const SensorGlucoseData *,int> getlaststream(const uint32_t nu) {
    const int total=usedsensors.size();
    int  minutes=15;
 
+    const int primary=primarysensor::index();
     for(int i=0;i<total ;i++) {
         const int index=usedsensors[i];
+        if(primarysensor::rivalof(primary,index))
+            continue; //rival sensors never provide the shown current value
         const SensorGlucoseData *hist=sensors->getSensorData(index);
         const int hiermin=hist->getminstreaminterval();
         if(hiermin<minutes)

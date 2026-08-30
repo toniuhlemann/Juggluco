@@ -1,14 +1,19 @@
 #pragma once
 #include "sensoren.hpp"
 #include "calibrate/Calibrator.hpp"
+#include "primarysensor.hpp"
 extern Sensoren *sensors;
 
 
 inline const SensorGlucoseData *getStreamSensor(int &sensorid) {
+	const int primary=primarysensor::index();
 	for(;;sensorid--) {
 		if(sensorid<0)  {
 			return nullptr;
 		}
+		// rival sensors (alive, not primary) never feed web outputs
+		if(primarysensor::rivalof(primary,sensorid))
+			continue;
 		if(const SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
 			if(sens->pollcount()>0)
 				return sens;

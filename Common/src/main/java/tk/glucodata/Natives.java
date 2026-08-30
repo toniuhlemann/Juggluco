@@ -131,6 +131,10 @@ public static native String getDeviceAddress(long dataptr,boolean getnew);
 	public static native long laststarttime();
 
     public static native String[] activeSensors();
+/*Primary sensor routing: only the primary sensor feeds live outputs. Serial=short sensor name as used by activeSensors(). */
+    public static native String getprimarysensor();
+    public static native void setprimarysensor(String serial);
+    public static native boolean isprimarysensor(String serial);
     public static native byte[] bluetoothOnKey(byte[] sensorident, byte[] patchinfo);
     public static native void bluetoothback( byte[] sensorident,byte[] info);
 //    public static native void setglucose(long time,float glu,String sensor,int index);

@@ -291,6 +291,26 @@ void showinfo(final SuperGattCallback gatt,MainActivity act) {
         Sensors.show(act,gatt.getinfo(),Natives.getsensorptr(gatt.dataptr));
         });
 
+    if(setprimary!=null) {
+        //primary sensor routing: looking at a sensor never switches the external
+        //data stream; only this confirmed button does
+        final String primary=Natives.getprimarysensor();
+        if(primarystatus!=null)
+            primarystatus.setText(act.getString(R.string.primarysensor)+": "+(primary==null?"-":primary));
+        final String serial=gatt.SerialNumber;
+        final boolean isprimary=serial!=null&&serial.equals(primary);
+        setprimary.setVisibility(isprimary?GONE:VISIBLE);
+        setprimary.setOnClickListener(v-> Confirm.ask(act,serial,act.getString(R.string.setprimarymessage),()-> {
+            Natives.setprimarysensor(serial);
+            SuperGattCallback.nexttime=0L;
+            SuperGattCallback.previousglucose=null;
+            if(!isWearable)
+                GlucoseWidget.update();
+            setadapter(act,SensorBluetooth.mygatts());
+            spin.setSelection(gattselected);
+            showinfo(gatt,act);
+            }));
+        }
     }
 TextView[] keytimes; TextView keyinfo;
 TextView[] glucosetimes; TextView glucoseinfo;
@@ -303,6 +323,8 @@ CheckDirectionBox priority,streamhistory, alarmclock,disconnectsensor;
 Button resetbutton;
 Button divorcebutton;
 Button clear;
+TextView primarystatus;
+Button setprimary;
 
 Button locationpermission;
 TextView scanview;
@@ -330,8 +352,11 @@ void confirmFinish(SuperGattCallback gat) {
 
 void    setadapter(Activity act,    final ArrayList<SuperGattCallback> gatts) {
     adap = new RangeAdapter<>(gatts, act, gatt -> {
-        if (gatt != null && gatt.SerialNumber != null)
+        if (gatt != null && gatt.SerialNumber != null) {
+            if(gatt.SerialNumber.equals(Natives.getprimarysensor()))
+                return gatt.SerialNumber+" ★";
             return gatt.SerialNumber;
+            }
         return "Error";
     });
     spin.setAdapter(adap);
@@ -523,6 +548,8 @@ bluediag(MainActivity act,final ArrayList<SuperGattCallback> gatts) {
     resetbutton=view.findViewById(R.id.resetbutton);
     divorcebutton=view.findViewById(R.id.divorcebutton);
     clear=view.findViewById(R.id.clear);
+    primarystatus=view.findViewById(R.id.primarystatus);
+    setprimary=view.findViewById(R.id.setprimary);
    alarmclock.setChecked(Natives.getalarmclock());
 if(!isWearable) {
     Button finish = view.findViewById(R.id.finish);

@@ -1008,6 +1008,8 @@ static bool    currentjson(std::string_view orign,recdata *outdata);
 static bool givecurrent(std::string_view origin,recdata *outdata) {
    int sensorid=sensors->last();
    const SensorGlucoseData *sens=getStreamSensor(sensorid);;
+   if(!sens)
+      return givenothing(outdata);
    const std::span<const ScanData> gdata=sens->getPolldata();
    const ScanData *first=&gdata.begin()[0];
    const ScanData *iter=&gdata.end()[-1];
@@ -1190,6 +1192,8 @@ char *getdeltastr(char *start) {
    char *outiter=start;
    int sensorid=sensors->last();
    const SensorGlucoseData *sens=getStreamSensor(sensorid);;
+   if(!sens)
+      return start;
    const std::span<const ScanData> gdata=sens->getPolldata();
    const ScanData *first=&gdata.begin()[0];
    const ScanData *iter=&gdata.end()[-1];
@@ -1242,6 +1246,8 @@ char *getdeltastr(char *start) {
 static char * givebgnow(char *start) {
    int sensorid=sensors->last();
    const SensorGlucoseData *sens=getStreamSensor(sensorid);;
+   if(!sens)
+      return start;
    const std::span<const ScanData> gdata=sens->getPolldata();
    const ScanData *first=&gdata.begin()[0];
    const ScanData *iter=&gdata.end()[-1];

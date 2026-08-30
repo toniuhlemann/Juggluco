@@ -24,6 +24,7 @@
 #include "SensorGlucoseData.hpp"
 #include "sensoren.hpp"
 #include "curve/numiter.hpp"
+#include "primarysensor.hpp"
 
 extern Sensoren *sensors;
 #define LOGGERTAG(...) LOGGER("export: " __VA_ARGS__)
@@ -148,8 +149,10 @@ bool exportdata(myfilep fp,NumIter<Num>*numiters,int start,int basecount,const F
 
 #include "glucose.hpp"	
 template <class T,class FG,class FP>
-bool sensorexports(myfilep handle, const FG& proc,const FP& print,uint32_t starttime=0,uint32_t endtime=UINT32_MAX,int maxcount=INT_MAX) {	
+bool sensorexports(myfilep handle, const FG& proc,const FP& print,uint32_t starttime=0,uint32_t endtime=UINT32_MAX,int maxcount=INT_MAX,bool primaryonly=false) {
 	auto indices=sensors->sensorsInPeriod(	starttime,endtime);
+	if(primaryonly)
+		primarysensor::removerivals(indices);
 	int totsen=indices.size();
 	LOGGERTAG("sensorexports start time=%u endtime=%u %d indices\n",starttime,endtime,totsen);
 	NumIter<T> *iters=new NumIter<T>[totsen];
@@ -210,7 +213,7 @@ bool currentheader(FILE* handle,int unit,bool calibrated=false) {
 
 
 template <bool repeatids>
-bool fexportscans(myfilep handle, int unit,CurData   (SensorGlucoseData::*proc)(const uint32_t,const uint32_t) const,uint32_t starttime,uint32_t endtime,int maxcount=INT_MAX,bool isCalibrated=false) {
+bool fexportscans(myfilep handle, int unit,CurData   (SensorGlucoseData::*proc)(const uint32_t,const uint32_t) const,uint32_t starttime,uint32_t endtime,int maxcount=INT_MAX,bool isCalibrated=false,bool primaryonly=false) {
 	return sensorexports<ScanData>(handle,proc, [unit,isCalibrated](myfilep fp,const int index,const ScanData *scan,const int sensorindex,const ScanData *beg) {
 		if(repeatids||scan==beg||scan->id!=scan[-1].id) {
 			const char *sensorname=sensors->shortsensorname(sensorindex)->data();
@@ -237,12 +240,12 @@ bool fexportscans(myfilep handle, int unit,CurData   (SensorGlucoseData::*proc)(
 			return true;
 			}
 		return false;
-			},starttime,endtime,maxcount);
-	} 
+			},starttime,endtime,maxcount,primaryonly);
+	}
 
-template <bool repeatids, CurData  (SensorGlucoseData::*proc)(const uint32_t,const uint32_t) const>
+template <bool repeatids, CurData  (SensorGlucoseData::*proc)(const uint32_t,const uint32_t) const,bool primaryonly=false>
 bool exportcurrent(myfilep handle,int unit,uint32_t start,uint32_t end,int maxcount=INT_MAX,bool calibrated=false) {
-	return fexportscans<repeatids>(handle,unit,proc,start,end,maxcount,calibrated);
+	return fexportscans<repeatids>(handle,unit,proc,start,end,maxcount,calibrated,primaryonly);
 	}
 template <bool repeatids>
 bool exportscans(int handle,  CurData  (SensorGlucoseData::*proc)(const uint32_t,const uint32_t) const,uint32_t starttime=0,uint32_t endtime=UINT32_MAX,int maxcount=INT_MAX,bool calibrated=false) {
@@ -278,8 +281,10 @@ static bool writehistoryheader(FILE *handle,int unit,bool calibrated=false) {
 		}
 	return true;
 	}
-bool fexporthistory(myfilep  handle,int unit,uint32_t starttime=0,uint32_t endtime=UINT32_MAX,int maxcount=INT_MAX,bool calibrated=false) {
-	const auto indices=sensors->sensorsInPeriod(starttime,endtime);
+bool fexporthistory(myfilep  handle,int unit,uint32_t starttime=0,uint32_t endtime=UINT32_MAX,int maxcount=INT_MAX,bool calibrated=false,bool primaryonly=false) {
+	auto indices=sensors->sensorsInPeriod(starttime,endtime);
+	if(primaryonly)
+		primarysensor::removerivals(indices);
 	const int totsen=indices.size();
 	NumIter<Glucose> *iters=new NumIter<Glucose>[totsen];
 	destruct _dest([iters]{delete[] iters;});
@@ -518,17 +523,22 @@ constexpr const cookie_io_functions_t  memfuncs = {
 	else
 			return {mem.mem,std::numeric_limits<size_t>::max()};
 	}
+/* the web endpoints suppress rival sensors (primary routing); the in-app export
+ * above keeps the complete history of all sensors */
+static bool fexporthistoryweb(myfilep handle,int unit,uint32_t starttime,uint32_t endtime,int maxcount,bool calibrated) {
+	return fexporthistory(handle,unit,starttime,endtime,maxcount,calibrated,true);
+	}
 std::span<char> gethistory(int startpos, int len, uint32_t starttime, uint32_t endtime,bool header,int unit,bool overlap,int maxcount=INT_MAX,bool calibrated=false) {
-	return getexportdata(startpos,len,starttime, endtime,unit,fexporthistory,header?writehistoryheader:nullptr,maxcount,calibrated);
+	return getexportdata(startpos,len,starttime, endtime,unit,fexporthistoryweb,header?writehistoryheader:nullptr,maxcount,calibrated);
 	}
 std::span<char> getamounts(int startpos, int len, uint32_t starttime, uint32_t endtime,bool header,int unit,bool overlap,int maxcount=INT_MAX,bool=false) {
 	return getexportdata(startpos,len,starttime, endtime,unit,fexportnums,header?writenumheader:nullptr,maxcount);
 	}
 std::span<char> getstream(int startpos, int len, uint32_t starttime, uint32_t endtime,bool header,int unit,bool overlap,int maxcount=INT_MAX,bool calibrated=false) {
-	return getexportdata(startpos,len,starttime, endtime,unit,exportcurrent<false,&SensorGlucoseData::streamInperiod>,header?currentheader:nullptr,maxcount,calibrated);
-       }	
+	return getexportdata(startpos,len,starttime, endtime,unit,exportcurrent<false,&SensorGlucoseData::streamInperiod,true>,header?currentheader:nullptr,maxcount,calibrated);
+       }
 std::span<char> getscans(int startpos, int len, uint32_t starttime, uint32_t endtime,bool header,int unit,bool overlap,int maxcount=INT_MAX,bool calibrated=false) {
-	return getexportdata(startpos,len,starttime, endtime,unit,exportcurrent<true,&SensorGlucoseData::scanInperiod>,header?currentheader:nullptr,maxcount,calibrated);
+	return getexportdata(startpos,len,starttime, endtime,unit,exportcurrent<true,&SensorGlucoseData::scanInperiod,true>,header?currentheader:nullptr,maxcount,calibrated);
 	}
 
 extern bool fallsavemeals(FILE *handle,int unit,uint32_t starttime,uint32_t endtime,int maxcount,bool=false) ;

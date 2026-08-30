@@ -8,6 +8,7 @@
 #include "sensoren.hpp"
 #include "nums/numdata.hpp"
 #include "common.hpp"
+#include "primarysensor.hpp"
 extern Settings *settings;
 extern Sensoren *sensors;
 constexpr int HTTP_OK=200;
@@ -207,7 +208,10 @@ static bool uploadCGM3() {
     time_t old=nu-twoweeks; */
 
     int newstartsensor=startsensor;
+    const int primary=primarysensor::index();
     for(int sensorid=last;sensorid>=startsensor;--sensorid) {
+        if(primarysensor::rivalof(primary,sensorid))
+            continue; //rival sensors are not uploaded; their position is kept for a later handover
         if(SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
             auto cali= make_calibrator<ScanData>(sens);
             std::span<const ScanData> gdata=sens->getPolldata();
@@ -282,7 +286,10 @@ static bool uploadCGM() {
     time_t old=nu-twoweeks; */
 
     int newstartsensor=startsensor;
+    const int primary=primarysensor::index();
     for(int sensorid=last;sensorid>=startsensor;--sensorid) {
+        if(primarysensor::rivalof(primary,sensorid))
+            continue; //rival sensors are not uploaded; their position is kept for a later handover
         if(SensorGlucoseData *sens=sensors->getSensorData(sensorid)) {
             std::span<const ScanData> gdata=sens->getPolldata();
             const sensorname_t *sensorname=sens->shortsensorname();
