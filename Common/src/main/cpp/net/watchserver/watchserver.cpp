@@ -2201,6 +2201,79 @@ static bool givel3diag(Getopts &opts,std::string_view origin,recdata *outdata) {
    return true;
    }
 
+/* /x/blood: read-only export of the blood glucose entries (the label selected
+ * as bloodvar) in the requested window, for comparing them outside Juggluco
+ * with the uncalibrated sensor readings. First line is the schema marker
+ * "#blood-v1", then "#unit=..." (the unit the stored values are in) and a
+ * column header. One line per entry, oldest first:
+ * time<TAB>source<TAB>mgdl<TAB>stored<TAB>calibrator
+ * source: index in numdatas (0 = this device); mgdl: converted like the
+ * calibration does; stored: the value as stored; calibrator: 1 if the
+ * calibration would use it (not excluded). Removed entries are skipped
+ * (valid() rejects the removed bit). Without a blood label only the marker
+ * lines and "#nobloodvar" are sent. This endpoint changes nothing. */
+static bool giveblood(Getopts &opts,std::string_view origin,recdata *outdata) {
+   constexpr const uint32_t maxwindow=90*24*60*60;
+   const uint32_t nu=time(nullptr);
+   uint32_t endtime=opts.end;
+   if(endtime>nu)
+      endtime=nu;
+   uint32_t starttime=opts.start;
+   if(endtime-starttime>maxwindow||starttime>endtime)
+      starttime=endtime-maxwindow;
+   const int bloodvar=settings->data()->bloodvar;
+   const bool hasblood=bloodvar<settings->getlabelcount();
+   const int basecount=numdatas.size();
+   size_t count=0;
+   if(hasblood) {
+      for(int i=0;i<basecount;i++) {
+         auto [low,high]=numdatas[i]->getInRange(starttime,endtime+1);
+         for(const Num *num=low;num<high;++num)
+            if(num->type==(uint32_t)bloodvar&&numdatas[i]->valid(num))
+               ++count;
+         }
+      }
+   constexpr const int maxline=64;
+   const size_t alloc=webheaderreserve+256+count*maxline;
+   char *out=outdata->allbuf=new(std::nothrow) char[alloc];
+   if(!out)
+      return outofmemory(outdata);
+   char *start=out+webheaderreserve,*outiter=start;
+   const char *const hardend=out+alloc-maxline;
+   addar(outiter,"#blood-v1\n");
+   outiter+=snprintf(outiter,48,"#unit=%s\n",settings->usemmolL()?"mmol/L":"mg/dL");
+   if(!hasblood)
+      addar(outiter,"#nobloodvar\n");
+   addar(outiter,"time\tsource\tmgdl\tstored\tcalibrator\n");
+   if(hasblood) {
+      //merge the sources by time without allocating: repeatedly take the
+      //oldest remaining entry
+      const Num *iters[basecount],*ends[basecount];
+      for(int i=0;i<basecount;i++) {
+         auto [low,high]=numdatas[i]->getInRange(starttime,endtime+1);
+         iters[i]=low;
+         ends[i]=high;
+         }
+      while(outiter<hardend) {
+         int best=-1;
+         for(int i=0;i<basecount;i++) {
+            while(iters[i]<ends[i]&&!(iters[i]->type==(uint32_t)bloodvar&&numdatas[i]->valid(iters[i])))
+               ++iters[i];
+            if(iters[i]<ends[i]&&(best<0||iters[i]->time<iters[best]->time))
+               best=i;
+            }
+         if(best<0)
+            break;
+         const Num *num=iters[best]++;
+         const float mgdl=settings->tomgperL(num->value)*.1f;
+         outiter+=snprintf(outiter,maxline,"%u\t%d\t%.1f\t%.2f\t%d\n",num->time,best,mgdl,num->value,num->calibrator(bloodvar)?1:0);
+         }
+      }
+   constexpr const std::string_view plain=R"(text/plain; charset=utf-8)";
+   mktypeheader(start,outiter,false,outdata,plain,origin);
+   return true;
+   }
+
 std::string_view jugglucocommand="x/";
 /*
 #include "reload.h"
@@ -2667,6 +2740,13 @@ static bool jugglucos(const char * const input,int size, std::string_view hostna
         constexpr const int namesize=sizeof(l3diag)-1;
         Getopts opts(input+namesize,size-namesize,3600);
         return givel3diag(opts,origin,outdata);
+        }
+      }
+    {constexpr const char blood[]="blood";
+    if(!strarcmp(blood,input)) {
+        constexpr const int namesize=sizeof(blood)-1;
+        Getopts opts(input+namesize,size-namesize,14*24*60*60);
+        return giveblood(opts,origin,outdata);
         }
       }
     {constexpr const char summary[]="summarygraph";
