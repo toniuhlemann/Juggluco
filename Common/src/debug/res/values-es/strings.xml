@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- main/res/values-es defines its own app_name, which would win over the debug default
+     and label the parallel debug app "Juggluco" again on devices in this language. -->
+<resources>
+    <string name="app_name" translatable="false">Juggluco DIAG</string>
+</resources>

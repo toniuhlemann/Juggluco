@@ -101,6 +101,10 @@ Gebaute APKs liegen mit MANIFEST.md unter `C:\Users\toniu\JugglucoBuilds\`.
   `datbackup.cpp` (duerfen den Epochen-Block nie einschliessen), neue Glukose-Ausgaenge
   im Upstream-Diff, Grid-Umbau in `bluediag.setPhoneSensorLayout` (Primaersensor-Zeile
   muss in beiden Modi eingetragen sein).
+- App-Label: `aapt2 dump badging <apk> | grep application-label` muss in JEDER Sprache
+  `Juggluco DIAG` zeigen. Definiert upstream `app_name` in einer neuen `values-xx`-Datei,
+  braucht `Common/src/debug/res/values-xx/strings.xml` eine eigene Ueberschreibung, sonst
+  heisst die Debug-App auf Geraeten in dieser Sprache wieder "Juggluco".
 
 ## Bekannte Eigenheiten
 - Release-Builds definieren `NOLOG=1` + `NORAWSTREAM=1`; Debug-Builds loggen (`SCANLOG`)
