@@ -18,7 +18,8 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
+
 #ifndef L3_PRIVATE_SCALAR_CODEC_H
 #define L3_PRIVATE_SCALAR_CODEC_H
 
@@ -42,12 +43,6 @@ extern const uint8_t l3_ephemeral_basepoint_public_xy64[64];
 int l3_p256_encode_private_scalar_to_native35(
     const uint8_t scalar32_be[32],
     uint8_t native35_le[35]);
-
-/* Convert the recovered 35-byte scalar representation back to 32-byte
- * big-endian form. */
-int l3_p256_decode_private_scalar_from_native35(
-    const uint8_t native35_le[35],
-    uint8_t scalar32_be[32]);
 
 #ifdef __cplusplus
 }

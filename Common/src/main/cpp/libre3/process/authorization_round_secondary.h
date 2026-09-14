@@ -18,7 +18,8 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
+
 #ifndef L3_AUTHORIZATION_MATERIAL_SECONDARY_MIX_H
 #define L3_AUTHORIZATION_MATERIAL_SECONDARY_MIX_H
 

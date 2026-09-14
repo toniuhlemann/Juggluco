@@ -578,6 +578,15 @@ std::span<const uint8_t> getauth() const {
 int getStreamStart() const {
     return std::max(pollstart,(uint16_t)warmupstartpos);
     }
+
+
+
+bool unused() const {
+    const auto *info=this;
+    const int un=(info->pollcount==0&&info->scancount==0&&info->endhistory==0);
+    LOGGER("unused()=%d\n",un);
+    return un;
+    }
 } ;
 //pathconcat sensordir;
 //pathconcat scanfile;
@@ -1145,7 +1154,7 @@ static bool mkdatabase(string_view sensordir,time_t start,const  char *uid,const
         Readall<uint8_t> inf(infoname);
         if(inf.data()&&inf.size()>=sizeof(Info)) {
             const Info *in=reinterpret_cast<const Info*>(inf.data());
-            if(in->starttime>1590000000&&in->dupl>0&&in->info.len==6)
+            if(!in->unused()&&in->starttime>1590000000&&in->dupl>0&&in->info.len==6)
                 return false;
             }
         }
@@ -1235,7 +1244,7 @@ static bool mkdatabase3(string_view sensordir,time_t start,uint32_t pin,const ch
         Readall<uint8_t> inf(infoname);
         if(inf.data()&&inf.size()>=sizeof(Info)) {
             const Info *in=reinterpret_cast<const Info*>(inf.data());
-            if(in->starttime>1590000000&&in->dupl>0&&in->interval==interval5)
+            if(!in->unused()&&in->starttime>1590000000&&in->dupl>0&&in->interval==interval5)
                 return false;
             }
         }
@@ -1278,7 +1287,7 @@ static bool mkdatabaseSI3(string_view sensordir,string_view sensorgegs,uint32_t 
     return true;
     }
 
-static bool mkdatabaseSI(string_view sensordir,string_view sensorgegs,uint32_t now,bool hasnum) {
+static bool mkdatabaseSI(string_view sensordir,string_view sensorgegs,uint32_t now,bool hasnum,uint8_t maxdays) {
      LOGGER("mkdatabaseSI %s,%s\n",sensordir.data(),sensorgegs.data());
     mkdir(sensordir.data(),0700);
     pathconcat infoname(sensordir,infopdat);
@@ -1295,7 +1304,7 @@ static bool mkdatabaseSI(string_view sensordir,string_view sensorgegs,uint32_t n
   //  const bool sib2=sensorgegs.size()==59;
         
 
-       Info inf{.starttime=(uint32_t)start,.lastscantime=(uint32_t)start,.starthistory=0,.endhistory=0,.scancount=0,.startid=0,.interval=interval5,.dupl=3,.days=maxdaysSI ,.sibionics=true,.lastLifeCountReceived=0,.siType=0,.pollcount=0,.pollinterval=88.0, .lockcount=1};
+       Info inf{.starttime=(uint32_t)start,.lastscantime=(uint32_t)start,.starthistory=0,.endhistory=0,.scancount=0,.startid=0,.interval=interval5,.dupl=3,.days=maxdays ,.sibionics=true,.lastLifeCountReceived=0,.siType=0,.pollcount=0,.pollinterval=88.0, .lockcount=1};
        inf.siIdlen=sensorgegs.size();
        memcpy(inf.siId,sensorgegs.data(),inf.siIdlen);
        if(hasnum) {
@@ -1440,9 +1449,7 @@ bool bluetoothback() {
 bool unused() const {
     const auto *info=getinfo();
     if(info)  {
-        const int un=(info->pollcount==0&&info->scancount==0&&info->endhistory==0);
-        LOGGER("unused()=%d\n",un);
-        return un;
+        return info->unused();
         }
     LOGGER("unused %p->getinfo()==null\n",this);
     return false;
@@ -1734,9 +1741,19 @@ bool saveStreamAgain(time_t tim,int id,int glu,int trend,float change) {
     getinfo()->pollcount=count;
     return false;
     }
-void saveglucosedata(Mmap<ScanData> &streamscans,uint32_t &count,time_t tim,int id,int glu,int trend,float change) {
+
+
+ void saveglucosedata(Mmap<ScanData> &streamscans,uint32_t &count,time_t tim,int id,int glu,int trend,float change) {
+     const auto capacity=streamscans.count();
+     if(count>=capacity) {
+        LOGGER("saveglucosedata: full count=%u capacity=%zu id=%d time=%lld\n",
+               count,capacity,id,static_cast<long long>(tim));
+        return;
+        }
      streamscans[count++]={static_cast<uint32_t>(tim),id,glu,trend,change};
-    }
+     }
+
+
 bool hasStreamID(const int id,const uint32_t eventtime) const {
     return polls[id].id==id&&polls[id].g&&!isnan(polls[id].getchange())&&abs((int)(polls[id].gettime()-eventtime))<60;
     }
@@ -1937,16 +1954,18 @@ void updateinit(const int ind) {
 
 static  const ScanData *firstnotless(std::span<const ScanData> dat,const uint32_t start) {
        const ScanData *scan=&dat.begin()[0];
-       if(dat.size()<1)
+       if(dat.empty())
             return scan;
-        const ScanData *endscan= &dat.end()[0];
+
+//        const ScanData *endscan= &dat.end()[0];
+        const ScanData *endscan = scan + dat.size();
         const ScanData scanst{.t=start};
         auto comp=[](const ScanData &el,const ScanData &se ){return el.t<se.t;};
         return std::lower_bound(scan,endscan, scanst,comp);
     }
 static CurData curInperiod(std::span<const ScanData> dat,const uint32_t starttime,const uint32_t endtime) {
     const ScanData *scan=&dat.begin()[0];
-    if(dat.size()<1)
+    if(dat.empty())
         return {scan,scan,scan};
     const ScanData *endscan= &dat.end()[0];
     auto comp=[](const ScanData &el,const ScanData &se ){return el.t<se.t;};

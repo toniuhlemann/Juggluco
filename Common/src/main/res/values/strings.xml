@@ -452,7 +452,7 @@
 <string name="connectionl">connection</string>
 <string name="disconnectsensor">Bug</string>
 <string name="internet">Internet</string>
-<string name="homenet">Home net</string>
+<string name="homenet">Local net</string>
 <string name="ICE">ICE</string>
 <string name="zero">0</string>
 <string name="one">1</string>
@@ -531,5 +531,16 @@
     <string name="webdeletefailed">"Couldn't delete %1$s"</string>
     <string name="webdirectoryempty">This directory is empty</string>
     <string name="webdirectoryentry">[dir] %1$s</string>
+
+    <string name="autorotate">Auto-rotate</string>
+    <string name="rotateText">Rotate text</string>
+
+    <string name="mirror_transport">Connection method:</string>
+    <string name="transport_automatic">Automatic</string>
+    <string name="transport_tcp">TCP/IP</string>
+    <string name="transport_bluetooth">Direct Bluetooth</string>
+    <string name="transport_messages">Messages</string>
+    <string name="transport_needs_label">Direct Bluetooth and Messages need a connection label</string>
+    <string name="transport_needs_password">Direct Bluetooth needs a mirror password</string>
 
 </resources>

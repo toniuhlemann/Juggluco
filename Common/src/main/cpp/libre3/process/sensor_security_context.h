@@ -18,12 +18,12 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
+
 #ifndef L3_SENSOR_SECURITY_CONTEXT_H
 #define L3_SENSOR_SECURITY_CONTEXT_H
 
-#include "libre3_handshake.h"
-#include "libre3_security_engine.h"
+#include "libre3_app_core.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -37,8 +37,7 @@ extern "C" {
  * All mutable handshake material lives here; no sensor-dependent state is global.
  */
 typedef struct l3_sensor_security_context {
-    l3_security_engine engine;
-    l3_handshake_state handshake;
+    l3_app_core core;
     int ready;
 } l3_sensor_security_context;
 
@@ -59,45 +58,59 @@ int l3_sensor_security_context_init(
     const l3_security_engine_config *config);
 void l3_sensor_security_context_clear(l3_sensor_security_context *context);
 
+/* Optional caller-owned scratch makes fresh authorization allocation-free. */
+size_t l3_sensor_security_authorization_scratch_size(void);
+size_t l3_sensor_security_authorization_scratch_alignment(void);
+int l3_sensor_security_set_authorization_scratch(
+    l3_sensor_security_context *context,
+    void *workspace,
+    size_t workspace_size);
+
 /* Libre 3 handshake operations used by KEYSCrypto / Libre3GattCallback. */
 int l3_sensor_security_begin_handshake(l3_sensor_security_context *context);
-int l3_sensor_security_load_app_key_and_saved_authorization(
+int l3_sensor_security_select_app_key_and_saved_authorization(
     l3_sensor_security_context *context,
-    const uint8_t *app_private_key,
-    size_t app_private_key_len,
+    unsigned security_version,
     const uint8_t *saved_authorization,
     size_t saved_authorization_len);
 int l3_sensor_security_set_patch_certificate(
     l3_sensor_security_context *context,
     const uint8_t *patch_certificate,
     size_t patch_certificate_len);
-int l3_sensor_security_create_ephemeral_public_key(
+int l3_sensor_security_create_ephemeral_public_key_into(
     l3_sensor_security_context *context,
-    uint8_t **out,
-    size_t *out_len);
+    uint8_t out64[L3_LEN_EPHEMERAL_PUBLIC_KEY]);
 int l3_sensor_security_derive_authorization_root(
     l3_sensor_security_context *context,
     const uint8_t *patch_ephemeral_public_key,
     size_t patch_ephemeral_public_key_len);
-int l3_sensor_security_encrypt_challenge_reply(
+int l3_sensor_security_encrypt_challenge_reply_into(
     l3_sensor_security_context *context,
     const uint8_t *nonce7,
     size_t nonce7_len,
     const uint8_t *plain36,
     size_t plain36_len,
-    uint8_t **out,
-    size_t *out_len);
-int l3_sensor_security_decrypt_challenge_response(
+    uint8_t out40[L3_LEN_CHALLENGE_REPLY_CRYPT]);
+int l3_sensor_security_decrypt_challenge_response_into(
     l3_sensor_security_context *context,
     const uint8_t *nonce7,
     size_t nonce7_len,
     const uint8_t *cipher60,
     size_t cipher60_len,
-    uint8_t **out,
-    size_t *out_len);
-int l3_sensor_security_export_saved_authorization(
+    uint8_t out56[L3_LEN_CHALLENGE_RESPONSE_PLAIN]);
+int l3_sensor_security_export_saved_authorization_into(
     l3_sensor_security_context *context,
-    uint8_t **out,
+    uint8_t out149[L3_LEN_SAVED_AUTHORIZATION]);
+
+
+/* Diagnostic copy of current authorization-root material.  Returns 1 when a
+ * root is present and copied, 0 when no root is present, or a negative error.
+ * The material is engine-private; this is for live differential logs only. */
+int l3_sensor_security_debug_copy_authorization_root(
+    const l3_sensor_security_context *context,
+    uint32_t meta4[4],
+    uint8_t *out,
+    size_t out_cap,
     size_t *out_len);
 
 #ifdef __cplusplus

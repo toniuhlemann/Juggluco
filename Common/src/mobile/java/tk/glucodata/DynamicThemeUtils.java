@@ -1,5 +1,6 @@
 package tk.glucodata;
 
+import androidx.core.content.ContextCompat;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -13,41 +14,45 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CompoundButton;
+import android.widget.TextView;
 
 import tk.glucodata.settings.AppTheme;
 
 public class DynamicThemeUtils {
 private static final String LOG_ID="DynamicThemeUtils";
+
     public static int resolveAttributeColor(Context ctx, int attrId, int defaultColor) {
         if (attrId == 0) return defaultColor;
+
         TypedValue val = new TypedValue();
-        
+
         if (ctx.getTheme().resolveAttribute(attrId, val, true)) {
             try {
                 if (val.resourceId != 0) {
-                    return ctx.getResources().getColor(val.resourceId, ctx.getTheme());
+                    return ContextCompat.getColor(ctx, val.resourceId);
                 }
-                if (val.type >= TypedValue.TYPE_FIRST_COLOR_INT && val.type <= TypedValue.TYPE_LAST_COLOR_INT) {
+
+                if (val.type >= TypedValue.TYPE_FIRST_COLOR_INT &&
+                        val.type <= TypedValue.TYPE_LAST_COLOR_INT) {
                     return val.data;
                 }
-            } catch (Exception e) {
-                // Fall back
+            } catch (Throwable e) {
+                Log.stack(LOG_ID, "resolveAttributeColor", e);
             }
         }
         return defaultColor;
     }
-
     public static InsetDrawable createDynamicButton(Context ctx, int radiusDp, boolean isOval) {
         String pkg = ctx.getPackageName();
         
         int bgId = ctx.getResources().getIdentifier("colorButtonBackground", "attr", pkg);
-        int normId = ctx.getResources().getIdentifier("colorControlNormal", "attr", pkg);
+        int disabledBgId = ctx.getResources().getIdentifier("colorButtonDisabledBackground", "attr", pkg);
         int highId = ctx.getResources().getIdentifier("colorControlHighlight", "attr", pkg);
 
         int nativeBtnColor = resolveAttributeColor(ctx, android.R.attr.colorButtonNormal, Color.LTGRAY);
         
         int cBg = resolveAttributeColor(ctx, bgId, nativeBtnColor);
-        int cNorm = resolveAttributeColor(ctx, normId, Color.GRAY);
+        int cDisabledBg = resolveAttributeColor(ctx, disabledBgId, Color.GRAY);
         int cHigh = resolveAttributeColor(ctx, highId, 0x33FFFFFF);
 
         float density = ctx.getResources().getDisplayMetrics().density;
@@ -61,7 +66,7 @@ private static final String LOG_ID="DynamicThemeUtils";
 
         GradientDrawable disShape = new GradientDrawable();
         disShape.setShape(shape);
-        disShape.setColor(cNorm);
+        disShape.setColor(cDisabledBg);
         if (!isOval) disShape.setCornerRadius(radiusPx);
 
         StateListDrawable stateList = new StateListDrawable();
@@ -83,18 +88,65 @@ private static final String LOG_ID="DynamicThemeUtils";
 
     public static void applyTheme(View root) {
         if(Natives.getTheme() == 0) {
-            return; 
-           } 
+            return;
+           }
         int radius = Natives.getradius();
         boolean isOval = Natives.getisOval();
-        applyTheme(root,radius,isOval);
-       }
-    public static void applyTheme(View root,int radius,boolean isOval) {
-        traverseAndStyle(root, radius, isOval);
+        traverseAndStyle(root, radius, isOval, true);
        }
 
-    private static void traverseAndStyle(View view, int radius, boolean isOval) {
-        if (view instanceof Button && !(view instanceof CompoundButton)) {
+    public static void applyTheme(View root,int radius,boolean isOval) {
+        traverseAndStyle(root, radius, isOval, true);
+       }
+
+    private static void applyDisabledTextColor(TextView text) {
+        ColorStateList oldColors = text.getTextColors();
+//        if(oldColors == null || oldColors.isStateful())
+        if(oldColors == null)
+            return;
+
+        Context ctx = text.getContext();
+        String pkg = ctx.getPackageName();
+        int disabledId = ctx.getResources().getIdentifier("colorDisabledText", "attr", pkg);
+        int enabledColor = oldColors.getDefaultColor();
+        int disabledColor = resolveAttributeColor(ctx, disabledId, enabledColor);
+
+        text.setTextColor(new ColorStateList(
+                new int[][] {
+                        new int[] {-android.R.attr.state_enabled},
+                        new int[] {}
+                },
+                new int[] {disabledColor, enabledColor}
+        ));
+    }
+
+    private static void applyCompoundButtonTint(CompoundButton button) {
+        Context ctx = button.getContext();
+        String pkg = ctx.getPackageName();
+        int disabledId = ctx.getResources().getIdentifier("colorDisabledControl", "attr", pkg);
+
+        int normal = resolveAttributeColor(ctx, android.R.attr.colorControlNormal, Color.GRAY);
+        int activated = resolveAttributeColor(ctx, android.R.attr.colorControlActivated, normal);
+        int disabled = resolveAttributeColor(ctx, disabledId, normal);
+
+        button.setButtonTintList(new ColorStateList(
+                new int[][] {
+                        new int[] {-android.R.attr.state_enabled},
+                        new int[] {android.R.attr.state_checked},
+                        new int[] {}
+                },
+                new int[] {disabled, activated, normal}
+        ));
+    }
+
+    private static void traverseAndStyle(View view, int radius, boolean isOval, boolean styleButtons) {
+        if (view instanceof TextView)
+            applyDisabledTextColor((TextView)view);
+
+        if (view instanceof CompoundButton)
+            applyCompoundButtonTint((CompoundButton)view);
+
+        if (styleButtons && view instanceof Button && !(view instanceof CompoundButton)) {
             int pL = view.getPaddingLeft();
             int pT = view.getPaddingTop();
             int pR = view.getPaddingRight();
@@ -103,10 +155,12 @@ private static final String LOG_ID="DynamicThemeUtils";
             view.setBackground(createDynamicButton(view.getContext(), radius, isOval));
 
             view.setPadding(pL, pT, pR, pB);
-        } else if (view instanceof ViewGroup) {
+        }
+
+        if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                traverseAndStyle(group.getChildAt(i), radius, isOval);
+                traverseAndStyle(group.getChildAt(i), radius, isOval, styleButtons);
             }
         }
     }

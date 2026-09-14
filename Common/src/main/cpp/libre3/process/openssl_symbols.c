@@ -18,6 +18,7 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
+
 #define L3_CRYPTO_DEFINE_PROJECT_POINTERS
 #include "openssl_symbols.h"

@@ -18,45 +18,9 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
-/* Minimal symbol list for l3_openssl_symbols_init().  Include only where symtest(name) is defined. */
-symtest(EVP_DigestInit_ex);
-symtest(EVP_DigestUpdate);
-symtest(EVP_DigestFinal_ex);
-symtest(EVP_MD_CTX_new);
-symtest(EVP_MD_CTX_free);
-symtest(EVP_sha1);
-symtest(EVP_sha256);
-symtest(EVP_sha512);
-symtest(HMAC);
-symtest(HMAC_CTX_new);
-symtest(HMAC_CTX_free);
-symtest(HMAC_Init_ex);
-symtest(HMAC_Update);
-symtest(HMAC_Final);
-symtest(RAND_bytes);
-symtest(EVP_CIPHER_CTX_new);
-symtest(EVP_CIPHER_CTX_free);
-symtest(EVP_CIPHER_CTX_set_padding);
-symtest(EVP_aes_128_ecb);
-symtest(EVP_aes_256_ctr);
-symtest(EVP_EncryptInit_ex);
-symtest(EVP_EncryptUpdate);
-symtest(EVP_EncryptFinal_ex);
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
 
-symtest(EC_KEY_new_by_curve_name);
-symtest(EC_KEY_generate_key);
-symtest(EC_KEY_get0_private_key);
-symtest(EC_KEY_get0_public_key);
-symtest(EC_KEY_get0_group);
-symtest(EC_KEY_free);
-symtest(EC_POINT_point2oct);
-symtest(BN_bn2binpad);
-symtest(BN_bin2bn);
-symtest(BN_free);
-symtest(EC_POINT_new);
-symtest(EC_POINT_free);
-symtest(EC_POINT_oct2point);
-symtest(EC_POINT_mul);
-symtest(AES_set_encrypt_key);
-symtest(AES_encrypt);
+/* The flat full profile uses libcrypto only as Android's secure entropy
+ * provider.  Saved-KAuth-only and external-entropy profiles do not compile the
+ * loader at all.  Include only where symtest(name) is defined. */
+symtest(RAND_bytes);

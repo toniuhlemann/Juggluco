@@ -110,7 +110,7 @@ void free() {
     }
     public Libre3GattCallback(String SerialNumber, long dataptr)  {
         super(SerialNumber,dataptr,3);
-        {if(doLog) {Log.d(LOG_ID, SerialNumber + ": "+ "Libre3GattCallback(..)");};};
+        {if(doLog) {Log.format(LOG_ID+" "+ SerialNumber + ": "+ "Libre3GattCallback(0x%x)\n",dataptr);};};
         sensorptr = Natives.getsensorptr(dataptr);
 
         if(Thread.currentThread().equals( Looper.getMainLooper().getThread() )) {
@@ -215,6 +215,8 @@ private boolean connected=false;
     @SuppressLint("MissingPermission")
     @Override 
     public void onConnectionStateChange(BluetoothGatt bluetoothGatt, int status, int newState) {
+        if(!acceptConnectionStateChange(bluetoothGatt,newState))
+            return;
 
 
         if(stop) {
@@ -268,8 +270,8 @@ private boolean connected=false;
                  realdisconnected(bluetoothGatt,status,tim);
                  }
             else {
-                bluetoothGatt.close();
-                mBluetoothGatt = null;
+                if(!closeCurrentGatt(bluetoothGatt))
+                    return;
                 }
             }
         }
@@ -486,7 +488,7 @@ private void setCertificate140() {
 private boolean    generateKAuth(byte[] input) {
     {if(doLog){showbytes(LOG_ID+ " "+SerialNumber +" generateKAuth",input);};}
     //Saves something?
-    return Natives.libre3DeriveAuthorizationRoot(securityContext,input)!=0;
+    return Natives.libre3DeriveAuthorizationRoot(securityContext,input)==1;
     }
 private boolean setCertificate65() {
     {if(doLog) {Log.i(LOG_ID, SerialNumber + ": "+"setCertificate65");};};
@@ -694,8 +696,8 @@ private void realdisconnected(BluetoothGatt bluetoothGatt,int status,long tim) {
         return;
         }
     else {
-        bluetoothGatt.close();
-        mBluetoothGatt = null;
+        if(!closeCurrentGatt(bluetoothGatt))
+            return;
         if(isWearable&&Natives.getDisconnectSensor()) {
             final long alreadywaited = tim - datatime;
             final long mmsectimebetween = 60 * 1000;
@@ -939,6 +941,10 @@ private int getcomphase() {
 private  byte[]           generateEphemeralKeys() {
 
     var evikeys=Natives.libre3CreateEphemeralPublicKey(securityContext);
+    if(evikeys==null || evikeys.length!=64) {
+        Log.e(LOG_ID, SerialNumber + ": libre3CreateEphemeralPublicKey failed");
+        return null;
+        }
     var uit=new byte[evikeys.length+1];
     arraycopy(evikeys,0,uit,1,evikeys.length);
     uit[0]=(byte)0x4;
@@ -1297,4 +1303,3 @@ void doSomething() {
         }
         */
 }
-

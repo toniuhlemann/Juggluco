@@ -67,6 +67,11 @@ public static native boolean hasBluetooth(byte[] sensorident,byte[] patchinfo);
 //    public static native void showlast();
 //    public static native void hidescanresults();
     public static native void resize(int width, int height,int initscreenwidth);
+//public static native void setDisplayRotation(int rotation,boolean reverseDefaultRotation);
+//public static native void setDisplayRotation(int rotation,boolean reverseDefaultRotation,boolean graphLockedToFirstLandscape);
+ public static native void setDisplayRotation(int rotation,boolean reverseDefaultRotation,boolean graphLockedToFirstLandscape,boolean graphUsesCurrentOrientationAsLandscape);
+
+public static native int getGraphRotationMode();
      public static native void initopengl(float small,float menu,float density,float head);
      public static native int setfilesdir(String dir,String country,String nativedir);
 //     public static native void calccurvegegs();
@@ -274,7 +279,29 @@ public static native String getbackuphostport(int pos);
 public static native String getbackuppassword(int pos);
 public static native boolean isWearOS(int pos);
 
-public static native int changebackuphost(int pos,String[] names,int nr,boolean detect,String port,boolean nums,boolean stream,boolean scans,boolean recover,boolean receive,boolean activeonly,boolean passiveonly,String pass,long starttime,String label,boolean testip,boolean hasname,String ICElabel,boolean side);
+public static native int changebackuphost(int pos,String[] names,int nr,boolean detect,String port,boolean nums,boolean stream,boolean scans,boolean recover,boolean receive,boolean activeonly,boolean passiveonly,String pass,long starttime,String label,boolean testip,boolean hasname,String ICElabel,boolean side,int transport,boolean bleclient);
+public static native int getbackuptransport(int pos);
+public static native boolean getbackupside(int pos);
+public static native boolean getbackupbleclient(int pos);
+public static native boolean getbackupblereverse(int pos);
+public static native boolean getbackupbleunproven(int pos);
+/**
+ * One-shot migration for pre-side phone/tablet mirror rows.
+ * Assigns side from the existing Scans send flag while preserving the
+ * already-stored local BLE role. It does not mark or unmark direction proof.
+ */
+public static native boolean setbackupbleclient(int pos,boolean bleclient);
+public static native boolean setbackupblereverse(int pos,boolean reverse);
+public static native boolean setbackupbleunproven(int pos,boolean unproven);
+public static native boolean setMirrorTransport(String label,int transport,boolean bleclient);
+public static native void setMirrorWearOS(int index);
+public static native void applyMirrorTransports();
+public static native void mirrorTransportReady(int localIndex,int remoteIndex,boolean phonePeer);
+public static native void mirrorTransportDisconnected(int localIndex,int remoteIndex);
+/** Current local TCP endpoints, for exchange only after an authenticated BLE handshake. */
+public static native byte[] getMirrorAddresses(int localIndex);
+/** Replace this mirror row's cached QR/IP candidates with a newer authenticated BLE update. */
+public static native boolean setMirrorAddresses(int localIndex,byte[] data);
 
 
 public static native boolean detectIP(int pos);
@@ -309,6 +336,8 @@ public static native String getreceiveport( );
 public static native void networkpresent( );
 public static native void networkabsent();
 public static native void resetnetwork();
+/** Probe cached TCP endpoints without leaving an active BLE/Message carrier. */
+public static native boolean probeMirrorTcp(int pos);
 public static native void setpaused(GlucoseCurve val);
 
 //public static native boolean usemeal();
@@ -469,8 +498,6 @@ public static native int getLibreVersion(long dataptr);
 public static native void USenabledStreaming(byte[] sensorident,byte[] jauth,byte[] address);
 public static native void closedynlib( );
 public static native strGlucose lastglucose();
-public static native byte[] getmynetinfo(String name,boolean create,int watchhassensor,boolean galaxy,int setnums);
-public static native boolean setmynetinfo(String name,byte[] jar,boolean galaxy);
 
 public static native long lastglucosetime( );
 public static native byte[] bytesettings();
@@ -596,9 +623,10 @@ public static native int startTimeIDsum(byte[] uit, long time, long accountID);
 
 
 
+
 static native long libre3BeginSecurityHandshake(long securityContext);
 static native void libre3FreeSecurityContext(long securityContext);
-static native int libre3LoadAppKeyAndSavedAuthorization(long securityContext, byte[] appPrivateKey, byte[] savedAuthorization);
+static native int libre3SelectAppKeyAndSavedAuthorization(long securityContext, int securityVersion, byte[] savedAuthorization);
 static native int libre3AcceptPatchCertificate(long securityContext, byte[] patchCertificate);
 static native byte[] libre3CreateEphemeralPublicKey(long securityContext);
 static native int libre3DeriveAuthorizationRoot(long securityContext, byte[] patchEphemeralPublicKey);
@@ -620,6 +648,8 @@ public static native byte[] intDecrypt(long cryptptr, int kind,byte[] encrypted)
 public static native float thresholdchange(float drate);
 //public static native void enddebug();
 public static native boolean message(byte[] data);
+/** Route a Bluetooth-carried frame to the already authenticated local mirror row. */
+public static native boolean messageForMirror(int localIndex,byte[] data);
 public static native boolean getBlueMessage(int index);
 public static native void setBlueMessage(String name,boolean val);
                 
@@ -1066,5 +1096,18 @@ public static native void testLibre3( );
 
 public static native void setalarmSoundType(int val);
 public static native int getalarmSoundType( );
-}
+public static native void setRotate(boolean val);
+public static native boolean getRotate( );
 
+
+public static native void setRotateText(boolean val);
+public static native boolean getRotateText( );
+
+
+public static native byte[] getmynetinfo(String name,boolean create,int watchhassensor,boolean galaxy,int setnums,boolean phonepeer);
+public static native String setmynetinfo(String name,byte[] jar,boolean galaxy,boolean phonepeer);
+public static native void retryMessageConnections(String skipName);
+public static native void resetMessageConnection(String name);
+
+
+}

@@ -18,8 +18,10 @@
 /*      You should have received a copy of the GNU General Public License            */
 /*      along with Juggluco. If not, see <https://www.gnu.org/licenses/>.            */
 /*                                                                                   */
-/*      Tue Aug 11 16:33:40 CEST 2026                                                */
+/*      Sun Aug 30 10:21:11 CEST 2026                                                */
+
 #include "authorization_digest.h"
+#include "whitebox_lookup_table.h"
 
 #include <string.h>
 #ifdef L3_AUTHORIZATION_DIGEST_DEBUG_TRACE
@@ -37,6 +39,34 @@ enum {
     ST_RAW_PENDING_LEN = 0x1e8,
     ST_RAW_WORDS = 0x1ec
 };
+
+typedef union l3_authorization_digest_finalize_workspace {
+    uint8_t compression[L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE];
+    struct {
+        uint8_t temp[66];
+        uint8_t padding_left[66];
+        uint8_t padding_right[66];
+        uint8_t zero_block[66];
+    } pre;
+    struct {
+        uint8_t a34[34];
+        uint8_t b34[34];
+        uint8_t c66[66];
+        uint8_t d34[34];
+        uint8_t e50[50];
+        uint8_t f114[114];
+        uint8_t g130[130];
+        uint8_t right34[34];
+        uint8_t right66[66];
+        uint8_t right50[50];
+        uint8_t right114[114];
+        uint8_t right130[130];
+    } post;
+} l3_authorization_digest_finalize_workspace;
+
+_Static_assert(sizeof(l3_authorization_digest_finalize_workspace) ==
+                   L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE,
+               "digest finalize workspace size");
 
 static uint32_t rd32le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -56,14 +86,30 @@ static void wr32le(uint8_t *p, uint32_t value) {
 }
 
 static int validate_digest_tables(const l3_authorization_digest_tables *t) {
-    if (!t || !t->state_transition_table || !t->digest_update_program ||
-        !t->digest_initialization_program) {
+    if (!t || !t->digest_update_program || !t->digest_initialization_program) {
         return L3_AUTHORIZATION_DIGEST_ERR_ARGUMENT;
     }
-    if (t->state_transition_table_len < 0x20000u ||
-        t->digest_update_program_len < 0x1d60u ||
+    if (t->digest_update_program_len < 0x1d60u ||
         t->digest_initialization_program_len < 0x120u) {
         return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+    }
+    return L3_AUTHORIZATION_DIGEST_OK;
+}
+
+static int digest_copy_update_program_slice(
+    const l3_authorization_digest_tables *t,
+    size_t logical_offset,
+    uint8_t *out,
+    size_t len) {
+    if (!t || !t->digest_update_program || !out ||
+        logical_offset > t->digest_update_program_len ||
+        len > t->digest_update_program_len - logical_offset) {
+        return L3_AUTHORIZATION_DIGEST_ERR_ARGUMENT;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        out[i] = l3_auth_table_read_byte(t->digest_update_program,
+                                        t->digest_update_program_format,
+                                        logical_offset + i);
     }
     return L3_AUTHORIZATION_DIGEST_OK;
 }
@@ -82,17 +128,17 @@ static int digest_table_transform(const l3_authorization_digest_tables *t,
     for (uint32_t i = 0; i < whole; ++i) {
         uint32_t index = (((state & 0xf8u) ^ p3[i]) |
                           ((uint32_t)p4[i] << 8)) ^
-                         ((uint32_t)t->digest_update_program[base + i] << 11);
-        if (index >= t->state_transition_table_len) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
-        state = t->state_transition_table[index];
+                         ((uint32_t)l3_auth_table_read_byte(t->digest_update_program, t->digest_update_program_format, base + i) << 11);
+        if (index >= L3_WHITEBOX_LOOKUP_TABLE_LEN) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+        state = l3_whitebox_lookup_byte(index);
         p5[i] = (uint8_t)(state & 7u);
     }
     for (uint32_t i = 0; i < rem; ++i) {
         uint32_t index = ((state & 0xf8u) |
                           ((uint32_t)p4[whole + i] << 8)) ^
-                         ((uint32_t)t->digest_update_program[base + whole + i] << 11);
-        if (index >= t->state_transition_table_len) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
-        state = t->state_transition_table[index];
+                         ((uint32_t)l3_auth_table_read_byte(t->digest_update_program, t->digest_update_program_format, base + whole + i) << 11);
+        if (index >= L3_WHITEBOX_LOOKUP_TABLE_LEN) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+        state = l3_whitebox_lookup_byte(index);
         p5[whole + i] = (uint8_t)(state & 7u);
     }
     return L3_AUTHORIZATION_DIGEST_OK;
@@ -114,25 +160,25 @@ static int digest_table_transform_with_skip(const l3_authorization_digest_tables
     for (uint32_t i = 0; i < skip; ++i) {
         uint32_t index = (((state & 0xf8u) ^ p3[i]) |
                           ((uint32_t)p4[i] << 8)) ^
-                         ((uint32_t)t->digest_update_program[base + i] << 11);
-        if (index >= t->state_transition_table_len) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
-        state = t->state_transition_table[index];
+                         ((uint32_t)l3_auth_table_read_byte(t->digest_update_program, t->digest_update_program_format, base + i) << 11);
+        if (index >= L3_WHITEBOX_LOOKUP_TABLE_LEN) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+        state = l3_whitebox_lookup_byte(index);
     }
     for (uint32_t i = 0; i < out_count; ++i) {
         uint32_t pos = skip + i;
         uint32_t index = (((state & 0xf8u) ^ p3[pos]) |
                           ((uint32_t)p4[pos] << 8)) ^
-                         ((uint32_t)t->digest_update_program[base + pos] << 11);
-        if (index >= t->state_transition_table_len) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
-        state = t->state_transition_table[index];
+                         ((uint32_t)l3_auth_table_read_byte(t->digest_update_program, t->digest_update_program_format, base + pos) << 11);
+        if (index >= L3_WHITEBOX_LOOKUP_TABLE_LEN) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+        state = l3_whitebox_lookup_byte(index);
         p5[i] = (uint8_t)(state & 7u);
     }
     for (uint32_t i = 0; i < rem; ++i) {
         uint32_t pos = skip + out_count + i;
         uint32_t index = (state & 0xf8u) |
-                         ((uint32_t)t->digest_update_program[base + pos] << 11);
-        if (index >= t->state_transition_table_len) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
-        state = t->state_transition_table[index];
+                         ((uint32_t)l3_auth_table_read_byte(t->digest_update_program, t->digest_update_program_format, base + pos) << 11);
+        if (index >= L3_WHITEBOX_LOOKUP_TABLE_LEN) return L3_AUTHORIZATION_DIGEST_ERR_TABLE_SIZE;
+        state = l3_whitebox_lookup_byte(index);
         p5[out_count + i] = (uint8_t)(state & 7u);
     }
     return L3_AUTHORIZATION_DIGEST_OK;
@@ -317,8 +363,11 @@ static int digest_absorb_encoded_block(l3_authorization_digest_context *ctx,
                         shifted, shifted, shifted);
             if (rc) return rc;
         }
-        const uint8_t *padding = ctx->tables.digest_update_program +
-                                 0x1070u + ((mod ^ 0x0fu) * 66u);
+        uint8_t padding[66];
+        rc = digest_copy_update_program_slice(
+            &ctx->tables, 0x1070u + ((mod ^ 0x0fu) * 66u),
+            padding, sizeof(padding));
+        if (rc) return rc;
         rc = digest_table_transform(&ctx->tables, 0x0b5u, 0x420u,
                     current, padding, combined);
         if (rc) return rc;
@@ -367,7 +416,9 @@ add_length:
     return L3_AUTHORIZATION_DIGEST_OK;
 }
 
-static int digest_compress_generated_state(l3_authorization_digest_context *ctx) {
+static int digest_compress_generated_state_with_workspace(
+    l3_authorization_digest_context *ctx,
+    uint8_t stack[L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE]) {
 #ifdef L3_AUTHORIZATION_DIGEST_SKIP_COMPRESSION
     (void)ctx;
     return L3_AUTHORIZATION_DIGEST_OK;
@@ -375,7 +426,7 @@ static int digest_compress_generated_state(l3_authorization_digest_context *ctx)
     /* FUN_f3f0c53c uses several deliberately overlapping stack views while
      * expanding its 16 input words.  Keep the original 0x650-byte address
      * geometry instead of relying on a compiler's layout of C locals. */
-    uint8_t stack[0x650] = {0};
+    memset(stack, 0, L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE);
     uint8_t *lanes = ctx->state + ST_LANES;
     uint8_t *blocks = ctx->state + ST_BLOCKS;
     int rc;
@@ -541,8 +592,19 @@ static int digest_compress_generated_state(l3_authorization_digest_context *ctx)
     L3_B(0x59eu, lanes + 0x6cu, lanes + 0x6cu, s5bc);
     L3_B(0x5fdu, lanes + 0x7eu, lanes + 0x7eu, s5ce);
 
-    /* The 64 generated-domain SHA-256 rounds. */
+    /* The 64 generated-domain SHA-256 rounds.  These operands are logical
+     * slices of the packed digest program; never address the packed storage as
+     * though it were the old unpacked 8192-byte array. */
+    uint8_t round_constant[18];
+    uint8_t e93_constant[18];
+    rc = digest_copy_update_program_slice(&ctx->tables, 0x18ceu,
+                                          e93_constant, sizeof(e93_constant));
+    if (rc) return rc;
     for (unsigned round = 0; round < 0x480u; round += 0x12u) {
+        rc = digest_copy_update_program_slice(&ctx->tables, 0x144eu + round,
+                                              round_constant,
+                                              sizeof(round_constant));
+        if (rc) return rc;
         L3_C(0x00c00ec9u, 0xc00f0u, s598, s598, s9a);
         memset(s78, 0, 13u);
         s78[13] = s598[0];
@@ -578,11 +640,10 @@ static int digest_compress_generated_state(l3_authorization_digest_context *ctx)
         L3_B(0x91bu, s5f2, s604, s9a);
         L3_B(0x973u, s78, s9a, s5e0);
         L3_B(0xd2bu, s5ce, s5e0, s5f2);
-        L3_B(0x813u, ctx->tables.digest_update_program + 0x144eu + round,
-             s53e + round, s604);
+        L3_B(0x813u, round_constant, s53e + round, s604);
         L3_B(0x3b8u, s5f2, s604, s616);
         L3_B(0x30au, s598, s5aa, s78);
-        L3_B(0xe93u, ctx->tables.digest_update_program + 0x18ceu, s598, s9a);
+        L3_B(0xe93u, e93_constant, s598, s9a);
         L3_B(0x825u, s9a, s5bc, s3e);
         L3_B(0xbbcu, s78, s3e, s628);
         L3_B(0x86du, s616, s628, sac);
@@ -666,6 +727,18 @@ static int digest_compress_generated_state(l3_authorization_digest_context *ctx)
 #endif
 }
 
+static int digest_compress_generated_state(
+    l3_authorization_digest_context *ctx) {
+    if (ctx && ctx->compression_workspace &&
+        ctx->compression_workspace_size >=
+            L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE) {
+        return digest_compress_generated_state_with_workspace(
+            ctx, (uint8_t *)ctx->compression_workspace);
+    }
+    uint8_t workspace[L3_AUTHORIZATION_DIGEST_FINALIZE_WORKSPACE_SIZE];
+    return digest_compress_generated_state_with_workspace(ctx, workspace);
+}
+
 int l3_authorization_digest_init(l3_authorization_digest_context *ctx,
                                 const l3_authorization_digest_tables *tables,
                                 uint32_t mode_bytes) {
@@ -722,9 +795,21 @@ int l3_authorization_digest_update_frame(l3_authorization_digest_context *ctx,
     return digest_absorb_encoded_block(ctx, encoded, (uint32_t)byte_count);
 }
 
-int l3_authorization_digest_finalize_frame82(l3_authorization_digest_context *ctx,
-                                   uint8_t out82[0x82]) {
-    if (!ctx || !out82 || ctx->finalized) return L3_AUTHORIZATION_DIGEST_ERR_ARGUMENT;
+int l3_authorization_digest_finalize_frame82_with_workspace(
+                                   l3_authorization_digest_context *ctx,
+                                   uint8_t out82[0x82],
+                                   void *workspace,
+                                   size_t workspace_size) {
+    if (!ctx || !out82 || ctx->finalized || !workspace ||
+        workspace_size < sizeof(l3_authorization_digest_finalize_workspace) ||
+        (uintptr_t)workspace %
+                _Alignof(l3_authorization_digest_finalize_workspace) != 0u) {
+        return L3_AUTHORIZATION_DIGEST_ERR_ARGUMENT;
+    }
+    l3_authorization_digest_finalize_workspace *ws =
+        (l3_authorization_digest_finalize_workspace *)workspace;
+    ctx->compression_workspace = ws->compression;
+    ctx->compression_workspace_size = sizeof(ws->compression);
     int rc = digest_flush_pending_bytes(ctx);
     if (rc) return rc;
     uint32_t total_lo = rd32le(ctx->state + ST_TOTAL_LO);
@@ -736,12 +821,22 @@ int l3_authorization_digest_finalize_frame82(l3_authorization_digest_context *ct
     if (total_hi != 0u || total_lo != 68u || block_index != 0u) {
         return L3_AUTHORIZATION_DIGEST_ERR_ARGUMENT;
     }
-    uint8_t temp[66];
+    uint8_t *temp = ws->pre.temp;
     uint8_t *blocks = ctx->state + ST_BLOCKS;
-    const uint8_t *padding_left = ctx->tables.digest_update_program +
-                                  0x1070u + ((4u ^ 15u) * 66u);
-    const uint8_t *padding_right = ctx->tables.digest_update_program +
-                                   0x1922u + ((4u ^ 15u) * 66u);
+    uint8_t *padding_left = ws->pre.padding_left;
+    uint8_t *padding_right = ws->pre.padding_right;
+    uint8_t *zero_block = ws->pre.zero_block;
+    rc = digest_copy_update_program_slice(
+        &ctx->tables, 0x1070u + ((4u ^ 15u) * 66u),
+        padding_left, 66u);
+    if (rc) return rc;
+    rc = digest_copy_update_program_slice(
+        &ctx->tables, 0x1922u + ((4u ^ 15u) * 66u),
+        padding_right, 66u);
+    if (rc) return rc;
+    rc = digest_copy_update_program_slice(&ctx->tables, 0x1d00u,
+                                          zero_block, 66u);
+    if (rc) return rc;
     rc = digest_table_transform(&ctx->tables, 0x3cau, 0x420u,
                 blocks, padding_left, temp);
     if (rc) return rc;
@@ -749,7 +844,6 @@ int l3_authorization_digest_finalize_frame82(l3_authorization_digest_context *ct
                 temp, padding_right, blocks);
     if (rc) return rc;
     for (unsigned i = 1u; i < 4u; ++i) {
-        const uint8_t *zero_block = ctx->tables.digest_update_program + 0x1d00u;
         rc = digest_table_transform(&ctx->tables, 0x54au, 0x420u,
                     zero_block, zero_block, blocks + i * 66u);
         if (rc) return rc;
@@ -770,50 +864,60 @@ int l3_authorization_digest_finalize_frame82(l3_authorization_digest_context *ct
     if (rc) return rc;
 
     const uint8_t *lanes = ctx->state + ST_LANES;
-    uint8_t a34[34], b34[34], c66[66], d34[34];
-    uint8_t e50[50], f114[114], g130[130];
-    uint8_t right34[34] = {0};
+    uint8_t *a34 = ws->post.a34;
+    uint8_t *b34 = ws->post.b34;
+    uint8_t *c66 = ws->post.c66;
+    uint8_t *d34 = ws->post.d34;
+    uint8_t *e50 = ws->post.e50;
+    uint8_t *f114 = ws->post.f114;
+    uint8_t *g130 = ws->post.g130;
+    uint8_t *right34 = ws->post.right34;
+    uint8_t *right66 = ws->post.right66;
+    uint8_t *right50 = ws->post.right50;
+    uint8_t *right114 = ws->post.right114;
+    uint8_t *right130 = ws->post.right130;
+    memset(right34, 0, 34u);
     right34[15] = 3u;
     memcpy(right34 + 16u, lanes + 5u * 18u, 18u);
     rc = digest_table_transform(&ctx->tables, 0x71bu, 0x400120u,
                 lanes + 6u * 18u, right34, a34);
     if (rc) return rc;
 
-    memset(right34, 0, sizeof(right34));
+    memset(right34, 0, 34u);
     memcpy(right34 + 16u, lanes + 3u * 18u, 18u);
     rc = digest_table_transform(&ctx->tables, 0x4feu, 0x400120u,
                 lanes + 4u * 18u, right34, b34);
     if (rc) return rc;
 
-    uint8_t right66[66] = {0};
+    memset(right66, 0, 66u);
     right66[31] = 6u;
-    memcpy(right66 + 32u, b34, sizeof(b34));
+    memcpy(right66 + 32u, b34, 34u);
     rc = digest_table_transform(&ctx->tables, 0x685u, 0x800220u,
                 a34, right66, c66);
     if (rc) return rc;
 
-    memset(right34, 0, sizeof(right34));
+    memset(right34, 0, 34u);
     right34[15] = 6u;
     memcpy(right34 + 16u, lanes + 18u, 18u);
     rc = digest_table_transform(&ctx->tables, 0x651u, 0x400120u,
                 lanes + 2u * 18u, right34, d34);
     if (rc) return rc;
 
-    uint8_t right50[50] = {0};
+    memset(right50, 0, 50u);
     memcpy(right50 + 32u, lanes, 18u);
     rc = digest_table_transform(&ctx->tables, 0x058u, 0x400220u,
                 d34, right50, e50);
     if (rc) return rc;
 
-    uint8_t right114[114] = {0};
+    memset(right114, 0, 114u);
     right114[63] = 7u;
-    memcpy(right114 + 64u, e50, sizeof(e50));
+    memcpy(right114 + 64u, e50, 50u);
     rc = digest_table_transform(&ctx->tables, 0xa1bu, 0xc00420u,
                 c66, right114, f114);
     if (rc) return rc;
 
-    uint8_t right130[130] = {0};
-    memcpy(right130 + 16u, f114, sizeof(f114));
+    memset(right130, 0, 130u);
+    memcpy(right130 + 16u, f114, 114u);
     rc = digest_table_transform(&ctx->tables, 0xf5eu, 0x1c00120u,
                 lanes + 7u * 18u, right130, g130);
     if (rc) return rc;
@@ -822,4 +926,20 @@ int l3_authorization_digest_finalize_frame82(l3_authorization_digest_context *ct
     if (rc) return rc;
     ctx->finalized = 1u;
     return L3_AUTHORIZATION_DIGEST_OK;
+}
+
+size_t l3_authorization_digest_finalize_workspace_size(void) {
+    return sizeof(l3_authorization_digest_finalize_workspace);
+}
+
+size_t l3_authorization_digest_finalize_workspace_alignment(void) {
+    return _Alignof(l3_authorization_digest_finalize_workspace);
+}
+
+int l3_authorization_digest_finalize_frame82(
+    l3_authorization_digest_context *ctx,
+    uint8_t out82[0x82]) {
+    l3_authorization_digest_finalize_workspace workspace;
+    return l3_authorization_digest_finalize_frame82_with_workspace(
+        ctx, out82, &workspace, sizeof(workspace));
 }

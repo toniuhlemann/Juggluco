@@ -26,7 +26,8 @@ if(false) {
     MINSDK = 19
     CPPSTD = "-std=gnu++2b"
 } else {
-    ndkver = '30.0.15729638'
+    ndkver = '30.0.16138531'
+
     APPCOMPAT = '1.7.1'
     GMSWEAR = '19.0.0'
     GMSBASE = '18.10.0'
@@ -43,6 +44,33 @@ try {
     gitShort = providers.exec { commandLine 'git', 'rev-parse', '--short=8', 'HEAD' }.standardOutput.asText.get().trim()
 } catch (Exception ignored) {
 }
+
+// BUILD_TIME FIX: generated through AGP Variant Sources API (2026-08-17)
+// Generate the build timestamp during task execution, rather than during
+// Gradle configuration. The output is registered below through AGP's Sources
+// API, so configuration-cache reuse cannot freeze the timestamp.
+abstract class GenerateBuildTimeTask extends org.gradle.api.DefaultTask {
+    @org.gradle.api.tasks.OutputDirectory
+    abstract org.gradle.api.file.DirectoryProperty getOutputDirectory()
+
+    @org.gradle.api.tasks.TaskAction
+    void generate() {
+        def packageDir = outputDirectory.dir("tk/glucodata").get().asFile
+        packageDir.mkdirs()
+
+        def time = new java.text.SimpleDateFormat("HH:mm:ss dd-MMM-yyyy")
+                .format(new java.util.Date())
+        new File(packageDir, "BuildTime.java").text = """\
+package tk.glucodata;
+
+public final class BuildTime {
+    private BuildTime() {}
+    public static final String TIME = "${time}";
+}
+"""
+    }
+}
+
 android {
     namespace = "tk.glucodata"
 
@@ -106,10 +134,9 @@ android {
         //compileSdk 36
         applicationId "tk.glucodata"
 
-         versionName '10.10.0'
+         versionName '11.0.2'
 //    multiDexEnabled true
 
-        buildConfigField 'String', 'BUILD_TIME', 'new java.text.SimpleDateFormat("HH:mm:ss dd-MMM-yyyy").format(new java.util.Date(' + System.currentTimeMillis() + 'L))'
         buildConfigField 'String', 'GIT_COMMIT', "\"${gitShort}\""
         buildConfigField 'int', 'isRelease', '0'
         buildConfigField 'int', 'isReleaseID', '0'
@@ -127,6 +154,7 @@ android {
 //    resourceConfigurations += ["en", "nl", "fr","it", "de", "pl", "pt","be","uk"]
     //ndk { abiFilters  'armeabi-v7a' }
       // ndk { abiFilters  'arm64-v8a' }
+      ndk { abiFilters  'armeabi-v7a',   'arm64-v8a' }
         signingConfig signingConfigs.alg
     //buildToolsVersion '33.0.0'
     }
@@ -182,8 +210,8 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
         libreOld {
     //******  Zet op rollout op 100% ******
             dimension 'libreVersion'
-            versionCode 901 //LIBRE2ONLY
-         //    versionName '10.10.0-no3'
+            versionCode 907 //LIBRE2ONLY
+         //    versionName '11.0.2-no3'
             versionNameSuffix '-no3'
             buildConfigField 'int', 'libreVersion', '2'
             externalNativeBuild.cmake {
@@ -196,7 +224,7 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
 //       minSdk 23
             dimension 'libreVersion'
         versionNameSuffix '-li3'
-        versionCode 901 //LIBRE3
+        versionCode 907 //LIBRE3
     //******  Zet op rollout op 100% ******
 
                buildConfigField 'int', 'libreVersion', '3'
@@ -211,7 +239,7 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
         si {
       dimension 'SiBionics'
         versionNameSuffix '-si'
-        versionCode 901 
+        versionCode 907 
        buildConfigField 'int', 'SiBionics', '1'
        externalNativeBuild.cmake {
          cppFlags "   -DSIBIONICS=1 "
@@ -220,7 +248,7 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
         }
         nosi {
             dimension 'SiBionics'
-         versionCode 901 
+         versionCode 907 
          versionNameSuffix '-nosi'
           buildConfigField 'int', 'SiBionics', '0'
           externalNativeBuild.cmake {
@@ -238,9 +266,9 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
         minSdk = 26
         buildConfigField 'int', 'minSDK', '26'
         manifestPlaceholders["minSDK"] = '26'
-        versionCode 902 //WATCH
+        versionCode 908 //WATCH
     //******  Zet op rollout op 100% ******
-        //versionName '10.10.0-wear'
+        //versionName '11.0.2-wear'
         versionNameSuffix '-wear'
         signingConfig signingConfigs.alg
 
@@ -258,8 +286,8 @@ flavorDimensions = ['wearos','libreVersion','SiBionics', 'DexCom','Google']
 
 //        minSdk 19
             dimension 'wearos'
-        versionCode 902 //WATCH
-        //versionName '10.10.0-small'
+        versionCode 908 //WATCH
+        //versionName '11.0.2-small'
         versionNameSuffix '-small'
         signingConfig signingConfigs.alg
 
@@ -595,6 +623,20 @@ buildTypes {
             ) {
                 variant.enable = false
             }
+        })
+
+        // Register BuildTime.java as generated Java source for every enabled variant.
+        // addGeneratedSourceDirectory() assigns outputDirectory and carries the task
+        // dependency automatically; no java.srcDir Provider or JavaCompile hook is needed.
+        onVariants(selector().all(), { variant ->
+            def taskName = "generate${variant.name.capitalize()}BuildTime"
+            def buildTimeTask = tasks.register(taskName, GenerateBuildTimeTask) {
+                // BUILD_TIME is deliberately different for every actual build invocation.
+                outputs.upToDateWhen { false }
+            }
+            variant.sources.java.addGeneratedSourceDirectory(
+                    buildTimeTask,
+                    GenerateBuildTimeTask::getOutputDirectory)
         })
     }
     compileSdkMinor 0
